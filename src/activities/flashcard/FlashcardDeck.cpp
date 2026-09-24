@@ -554,7 +554,7 @@ std::string FlashcardDeck::fileNameToDisplayName(const std::string& filename) {
   // Strip .csv extension
   std::string name = filename;
   if (hasCsvSuffix(name)) {
-    name = name.substr(0, name.size() - 4);
+    name.resize(name.size() - 4);
   }
   // Replace underscores with spaces
   for (char& c : name) {

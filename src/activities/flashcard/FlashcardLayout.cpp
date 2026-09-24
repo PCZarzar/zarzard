@@ -17,7 +17,7 @@ namespace FlashcardLayout {
 
 static bool isUtf8Start(unsigned char b) { return (b & 0xC0) != 0x80; }
 
-static void wrapByCodepoint(GfxRenderer& r, int fontId, const std::string& seg, int maxWidth,
+static void wrapByCodepoint(const GfxRenderer& r, int fontId, const std::string& seg, int maxWidth,
                             std::vector<std::string>& out) {
   std::string line;
   for (size_t i = 0; i < seg.size();) {
@@ -36,8 +36,8 @@ static void wrapByCodepoint(GfxRenderer& r, int fontId, const std::string& seg, 
 }
 
 // wordCut (optional) is set when some word had to be split by codepoint.
-static void wrapSegment(GfxRenderer& r, int fontId, const std::string& seg, int maxWidth, std::vector<std::string>& out,
-                        bool* wordCut) {
+static void wrapSegment(const GfxRenderer& r, int fontId, const std::string& seg, int maxWidth,
+                        std::vector<std::string>& out, bool* wordCut) {
   if (seg.empty()) {
     out.push_back("");
     return;
@@ -72,7 +72,8 @@ static void wrapSegment(GfxRenderer& r, int fontId, const std::string& seg, int 
   if (!line.empty()) out.push_back(std::move(line));
 }
 
-std::vector<std::string> wrapText(GfxRenderer& r, int fontId, const std::string& text, int maxWidth, bool* wordCut) {
+std::vector<std::string> wrapText(const GfxRenderer& r, int fontId, const std::string& text, int maxWidth,
+                                  bool* wordCut) {
   std::vector<std::string> lines;
   size_t i = 0;
   while (i <= text.size()) {
@@ -93,7 +94,7 @@ static constexpr int MAX_MAIN_LINES = 4;
 // skipped when it lacks a glyph the full-coverage serif (14) has, so nothing
 // the built-in fonts can draw ends up invisible. Codepoints no built-in font
 // has (e.g. arrows) do not affect the choice.
-static bool fontCovers(GfxRenderer& r, int fontId, const std::string& text) {
+static bool fontCovers(const GfxRenderer& r, int fontId, const std::string& text) {
   const unsigned char* p = reinterpret_cast<const unsigned char*>(text.c_str());
   uint32_t cp;
   while ((cp = utf8NextCodepoint(&p))) {
@@ -103,7 +104,7 @@ static bool fontCovers(GfxRenderer& r, int fontId, const std::string& text) {
   return true;
 }
 
-int pickMainFont(GfxRenderer& r, const std::string& text, int maxWidth, int availH,
+int pickMainFont(const GfxRenderer& r, const std::string& text, int maxWidth, int availH,
                  std::vector<std::string>& outLines) {
   const int candidates[] = {NOTOSERIF_24_FONT_ID, NOTOSERIF_22_FONT_ID, NOTOSERIF_20_FONT_ID,
                             NOTOSERIF_18_FONT_ID, NOTOSERIF_16_FONT_ID, NOTOSERIF_14_FONT_ID};
@@ -140,7 +141,7 @@ static std::vector<std::string> monoTokens(const std::string& text) {
 }
 
 // Greedy token packing; returns false if a single token is wider than maxWidth.
-static bool packMonoTokens(GfxRenderer& r, int fontId, const std::vector<std::string>& tokens, int maxWidth,
+static bool packMonoTokens(const GfxRenderer& r, int fontId, const std::vector<std::string>& tokens, int maxWidth,
                            std::vector<std::string>& out) {
   out.clear();
   std::string line;
@@ -166,7 +167,7 @@ static bool packMonoTokens(GfxRenderer& r, int fontId, const std::vector<std::st
   return true;
 }
 
-int pickMonoFont(GfxRenderer& r, const std::string& text, int maxWidth, int availH,
+int pickMonoFont(const GfxRenderer& r, const std::string& text, int maxWidth, int availH,
                  std::vector<std::string>& outLines) {
   // Mono sizes share one glyph subset; outside it, fall back to the serif rule.
   if (!fontCovers(r, JETBRAINSMONO_14_FONT_ID, text)) {
@@ -196,7 +197,7 @@ int pickMonoFont(GfxRenderer& r, const std::string& text, int maxWidth, int avai
   return JETBRAINSMONO_14_FONT_ID;
 }
 
-FrontLayout layoutFront(GfxRenderer& r, const std::string& main, const std::string& hint, const CardArea& area,
+FrontLayout layoutFront(const GfxRenderer& r, const std::string& main, const std::string& hint, const CardArea& area,
                         const int hintFont) {
   FrontLayout out;
   out.hintFont = hintFont;
@@ -212,8 +213,8 @@ FrontLayout layoutFront(GfxRenderer& r, const std::string& main, const std::stri
   return out;
 }
 
-BackLayout layoutBack(GfxRenderer& r, const std::string& question, const std::string& backContent, const CardArea& area,
-                      const int questionFont) {
+BackLayout layoutBack(const GfxRenderer& r, const std::string& question, const std::string& backContent,
+                      const CardArea& area, const int questionFont) {
   BackLayout out;
   out.questionFont = questionFont;
   out.questionY = area.top;

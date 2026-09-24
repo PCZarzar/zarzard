@@ -10,19 +10,21 @@ namespace FlashcardLayout {
 
 // Wrap at spaces (and '\n'); words wider than maxWidth are split by UTF-8
 // codepoint, in which case *wordCut is set.
-std::vector<std::string> wrapText(GfxRenderer& r, int fontId, const std::string& text, int maxWidth,
+std::vector<std::string> wrapText(const GfxRenderer& r, int fontId, const std::string& text, int maxWidth,
                                   bool* wordCut = nullptr);
 
 // 5.2: largest NotoSerif 24..14 that fits availH in <= 4 lines without
 // splitting a word; otherwise 14 with codepoint splitting.
-int pickMainFont(GfxRenderer& r, const std::string& text, int maxWidth, int availH, std::vector<std::string>& outLines);
+int pickMainFont(const GfxRenderer& r, const std::string& text, int maxWidth, int availH,
+                 std::vector<std::string>& outLines);
 
 // 5.3: back_content entirely wrapped in backticks.
 bool isMonoAnswer(const std::string& back);
 
 // 5.3: largest JetBrains Mono 24..14 on one line; else break after '/' or
 // ' ' (never inside a token) at the largest of 20..14 that fits.
-int pickMonoFont(GfxRenderer& r, const std::string& text, int maxWidth, int availH, std::vector<std::string>& outLines);
+int pickMonoFont(const GfxRenderer& r, const std::string& text, int maxWidth, int availH,
+                 std::vector<std::string>& outLines);
 
 // Card screens (spec 5.4). Geometry is computed here and only drawn by
 // FlashcardReviewActivity, so host tests check exactly what is rendered.
@@ -43,7 +45,7 @@ struct FrontLayout {
 };
 
 // Main text vertically centred (5.2 font rule), hint right below it.
-FrontLayout layoutFront(GfxRenderer& r, const std::string& main, const std::string& hint, const CardArea& area,
+FrontLayout layoutFront(const GfxRenderer& r, const std::string& main, const std::string& hint, const CardArea& area,
                         int hintFont);
 
 struct BackLayout {
@@ -59,7 +61,7 @@ struct BackLayout {
 // Question (frontMain) small at the top, separator, answer vertically centred
 // in the remaining space (5.3 mono rule or 5.2). Lines that would overflow the
 // area are dropped, never drawn over the button hints.
-BackLayout layoutBack(GfxRenderer& r, const std::string& question, const std::string& backContent, const CardArea& area,
-                      int questionFont);
+BackLayout layoutBack(const GfxRenderer& r, const std::string& question, const std::string& backContent,
+                      const CardArea& area, int questionFont);
 
 }  // namespace FlashcardLayout
