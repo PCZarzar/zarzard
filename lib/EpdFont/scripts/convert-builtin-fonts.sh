@@ -79,6 +79,24 @@ for size in ${UI_FONT_SIZES[@]}; do
   done
 done
 
+# Flashcard card text: Latin-only subsets (Basic Latin, Latin-1 Supplement,
+# General Punctuation) keep the large sizes small.
+FLASHCARD_INTERVALS="--only-intervals 0x20,0x7E --only-intervals 0xA0,0xFF --only-intervals 0x2010,0x2027"
+
+for size in 20 22 24; do
+  font_name="notoserif_${size}_regular"
+  python fontconvert.py $font_name $size ../builtinFonts/source/NotoSerif/NotoSerif-Regular.ttf --2bit --compress --pnum --zopfli $FLASHCARD_INTERVALS > ../builtinFonts/${font_name}.h
+  echo "Generated ../builtinFonts/${font_name}.h"
+done
+
+# Monospace answers (back_content wrapped in backticks): one line at 24..14,
+# otherwise wrapped at 20..14.
+for size in 14 16 18 20 22 24; do
+  font_name="jetbrainsmono_${size}_regular"
+  python fontconvert.py $font_name $size ../builtinFonts/source/JetBrainsMono/JetBrainsMono-Regular.ttf --2bit --compress --zopfli $FLASHCARD_INTERVALS > ../builtinFonts/${font_name}.h
+  echo "Generated ../builtinFonts/${font_name}.h"
+done
+
 python fontconvert.py notosans_8_regular 8 \
   ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf \
   ../builtinFonts/source/NotoSansHebrew/NotoSansHebrew-Regular.ttf \

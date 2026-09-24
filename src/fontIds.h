@@ -13,6 +13,16 @@
 #define UI_12_FONT_ID (1831230762)
 #define SMALL_FONT_ID (1465627787)
 
+#define NOTOSERIF_20_FONT_ID (-2021389817)
+#define NOTOSERIF_22_FONT_ID (-1627923903)
+#define NOTOSERIF_24_FONT_ID (-1946847694)
+#define JETBRAINSMONO_14_FONT_ID (-260828803)
+#define JETBRAINSMONO_16_FONT_ID (-1496599573)
+#define JETBRAINSMONO_18_FONT_ID (1628692248)
+#define JETBRAINSMONO_20_FONT_ID (-455287575)
+#define JETBRAINSMONO_22_FONT_ID (287290093)
+#define JETBRAINSMONO_24_FONT_ID (-125880029)
+
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.
 static_assert(NOTOSERIF_12_FONT_ID != 0, "Font ID collision with sentinel");
@@ -26,3 +36,12 @@ static_assert(NOTOSANS_18_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(SMALL_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSERIF_20_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSERIF_22_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSERIF_24_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(JETBRAINSMONO_14_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(JETBRAINSMONO_16_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(JETBRAINSMONO_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(JETBRAINSMONO_20_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(JETBRAINSMONO_22_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(JETBRAINSMONO_24_FONT_ID != 0, "Font ID collision with sentinel");

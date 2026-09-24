@@ -116,6 +116,26 @@ EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, 
 EpdFont smallFont(&notosans_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
+// Flashcard card text (regular only, Latin subsets)
+EpdFont notoserif20RegularFont(&notoserif_20_regular);
+EpdFontFamily notoserif20FontFamily(&notoserif20RegularFont);
+EpdFont notoserif22RegularFont(&notoserif_22_regular);
+EpdFontFamily notoserif22FontFamily(&notoserif22RegularFont);
+EpdFont notoserif24RegularFont(&notoserif_24_regular);
+EpdFontFamily notoserif24FontFamily(&notoserif24RegularFont);
+EpdFont jetbrainsMono14RegularFont(&jetbrainsmono_14_regular);
+EpdFontFamily jetbrainsMono14FontFamily(&jetbrainsMono14RegularFont);
+EpdFont jetbrainsMono16RegularFont(&jetbrainsmono_16_regular);
+EpdFontFamily jetbrainsMono16FontFamily(&jetbrainsMono16RegularFont);
+EpdFont jetbrainsMono18RegularFont(&jetbrainsmono_18_regular);
+EpdFontFamily jetbrainsMono18FontFamily(&jetbrainsMono18RegularFont);
+EpdFont jetbrainsMono20RegularFont(&jetbrainsmono_20_regular);
+EpdFontFamily jetbrainsMono20FontFamily(&jetbrainsMono20RegularFont);
+EpdFont jetbrainsMono22RegularFont(&jetbrainsmono_22_regular);
+EpdFontFamily jetbrainsMono22FontFamily(&jetbrainsMono22RegularFont);
+EpdFont jetbrainsMono24RegularFont(&jetbrainsmono_24_regular);
+EpdFontFamily jetbrainsMono24FontFamily(&jetbrainsMono24RegularFont);
+
 EpdFont ui10RegularFont(&ubuntu_10_regular);
 EpdFont ui10BoldFont(&ubuntu_10_bold);
 EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
@@ -334,6 +354,15 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  renderer.insertFont(NOTOSERIF_20_FONT_ID, notoserif20FontFamily);
+  renderer.insertFont(NOTOSERIF_22_FONT_ID, notoserif22FontFamily);
+  renderer.insertFont(NOTOSERIF_24_FONT_ID, notoserif24FontFamily);
+  renderer.insertFont(JETBRAINSMONO_14_FONT_ID, jetbrainsMono14FontFamily);
+  renderer.insertFont(JETBRAINSMONO_16_FONT_ID, jetbrainsMono16FontFamily);
+  renderer.insertFont(JETBRAINSMONO_18_FONT_ID, jetbrainsMono18FontFamily);
+  renderer.insertFont(JETBRAINSMONO_20_FONT_ID, jetbrainsMono20FontFamily);
+  renderer.insertFont(JETBRAINSMONO_22_FONT_ID, jetbrainsMono22FontFamily);
+  renderer.insertFont(JETBRAINSMONO_24_FONT_ID, jetbrainsMono24FontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);

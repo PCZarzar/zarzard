@@ -100,6 +100,60 @@ ruby -rdigest -e 'puts [
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"
 
+echo "#define NOTOSERIF_20_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./notoserif_20_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define NOTOSERIF_22_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./notoserif_22_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define NOTOSERIF_24_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./notoserif_24_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define JETBRAINSMONO_14_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./jetbrainsmono_14_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define JETBRAINSMONO_16_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./jetbrainsmono_16_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define JETBRAINSMONO_18_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./jetbrainsmono_18_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define JETBRAINSMONO_20_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./jetbrainsmono_20_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define JETBRAINSMONO_22_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./jetbrainsmono_22_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define JETBRAINSMONO_24_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./jetbrainsmono_24_regular.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
 FONT_ID_NAMES=(
   NOTOSERIF_12_FONT_ID
   NOTOSERIF_14_FONT_ID
@@ -112,6 +166,15 @@ FONT_ID_NAMES=(
   UI_10_FONT_ID
   UI_12_FONT_ID
   SMALL_FONT_ID
+  NOTOSERIF_20_FONT_ID
+  NOTOSERIF_22_FONT_ID
+  NOTOSERIF_24_FONT_ID
+  JETBRAINSMONO_14_FONT_ID
+  JETBRAINSMONO_16_FONT_ID
+  JETBRAINSMONO_18_FONT_ID
+  JETBRAINSMONO_20_FONT_ID
+  JETBRAINSMONO_22_FONT_ID
+  JETBRAINSMONO_24_FONT_ID
 )
 
 echo ""
