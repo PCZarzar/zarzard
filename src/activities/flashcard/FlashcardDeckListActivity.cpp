@@ -30,13 +30,17 @@ void FlashcardDeckListActivity::onEnter() {
 void FlashcardDeckListActivity::loadDeckList() {
   decks.clear();
   totalDueToday = 0;
+  failedDecks = 0;
 
   uint32_t newTotal = 0;
   const auto paths = FlashcardDeck::listDecks();
   decks.reserve(paths.size());
   for (const auto& path : paths) {
     FlashcardDeck deck;
-    if (!deck.loadFromCsv(path.c_str())) continue;
+    if (!deck.loadFromCsv(path.c_str())) {
+      ++failedDecks;
+      continue;
+    }
     DeckEntry entry;
     entry.name = deck.getName();
     entry.path = path;
@@ -188,7 +192,13 @@ void FlashcardDeckListActivity::render(RenderLock&&) {
   char subtitle[64];
   snprintf(subtitle, sizeof(subtitle), "%s %u", tr(STR_FLASHCARD_REVIEW_TODAY), static_cast<unsigned>(totalDueToday));
   renderer.drawText(SMALL_FONT_ID, sidePad, y, subtitle);
-  y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  y += renderer.getLineHeight(SMALL_FONT_ID);
+  if (failedDecks > 0) {
+    snprintf(subtitle, sizeof(subtitle), "%s %u", tr(STR_FLASHCARD_LOAD_FAILED), static_cast<unsigned>(failedDecks));
+    renderer.drawText(SMALL_FONT_ID, sidePad, y, subtitle);
+    y += renderer.getLineHeight(SMALL_FONT_ID);
+  }
+  y += metrics.verticalSpacing;
 
   const int deckCount = static_cast<int>(decks.size());
   const int total = deckCount + EXTRA_ITEMS;

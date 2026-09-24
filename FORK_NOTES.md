@@ -89,6 +89,22 @@ Test deck `test/decks/lpic_test.csv`:
 - **`N` in "Next: deck (N cards)"** is capped by *Max reviews / deck* and resolved
   when the session ends (it depends on the quota the session consumed). Spaced
   rounds wrap around the list; Linear "next deck" does not wrap (as specified).
+- **Literal `/n` in paths (`\/`).** `/n` is the format's line break (spec card 7),
+  which would split `/etc/nsswitch.conf` or `/sbin/nologin`. In the front, the hint
+  and plain answers write **`\/`** for a literal slash: `/etc\/nsswitch.conf`.
+  Answers wrapped in backticks are always literal (no escaping needed there).
+- **Independent review (high)** — fixed: `/n` in paths (above); front and hint are
+  clipped to the card area (a huge front/hint no longer overlaps the buttons); decks
+  that fail to load are reported on the list instead of vanishing; `goHome()` from
+  any flashcard screen returns to the Flashcards row; dead `importCsv()` (512-byte
+  stack buffer) removed; vectors pre-reserved.
+  Accepted as limitations: the deck load needs one heap block the size of the CSV
+  (≤ 256 KB; real LPIC decks are a few KB); the deck list reloads all CSVs after a
+  session (slow only with many large decks); Home menu overflows in Classic or
+  Lyra 3 Covers when an OPDS server is also configured; SM-2 is unchanged by spec
+  (a hand-edited absurd `sr_interval` can wrap); the NTP loop mirrors
+  `HalClock::syncFromNTP`, which cannot be reused because it returns early on
+  boards without an RTC (the X4).
 
 ## Host tests (`bash test/flashcard/run.sh`)
 

@@ -58,6 +58,18 @@ static void testFrontParser() {
   CHECK_EQ(front("ends with \\").frontMain(), std::string("ends with \\"));
 }
 
+static void testLiteralSlash() {
+  // "\/" keeps a path's "/n" from becoming a line break
+  CHECK_EQ(front("O que controla /etc\\/nsswitch.conf?").frontMain(),
+           std::string("O que controla /etc/nsswitch.conf?"));
+  CHECK_EQ(front("Shell de /sbin\\/nologin \\ dica /mnt\\/nfs \\").frontMain(), std::string("Shell de /sbin/nologin"));
+  CHECK_EQ(front("Shell de /sbin\\/nologin \\ dica /mnt\\/nfs \\").frontHint(), std::string("dica /mnt/nfs"));
+  CHECK_EQ(FlashcardDeck::decodeNewlines("/usr\\/share\\/nano"), std::string("/usr/share/nano"));
+  // Unescaped /n is still a newline, other backslashes are untouched
+  CHECK_EQ(FlashcardDeck::decodeNewlines("Linha 1/nLinha 2"), std::string("Linha 1\nLinha 2"));
+  CHECK_EQ(FlashcardDeck::decodeNewlines("a\\.b"), std::string("a\\.b"));
+}
+
 static void testTestDeck(const std::string& deckPath) {
   FlashcardDeck deck;
   CHECK_EQ(deck.loadFromCsv(deckPath.c_str()), true);
@@ -338,6 +350,7 @@ static void testSaveAndRecovery(const std::string& root) {
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
+  testLiteralSlash();
   testTestDeck("/lpic_test.csv");
   testLinearSession();
   testDailyNewLimit();

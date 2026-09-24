@@ -24,6 +24,7 @@ class FlashcardDeckListActivity final : public Activity {
   int selectedIndex = 0;
   uint32_t today = 0;
   uint32_t totalDueToday = 0;
+  uint16_t failedDecks = 0;  // CSVs that could not be loaded (too big, no memory, read error)
 
   // Current chained round. Cleared whenever control returns to the list.
   std::vector<std::string> visitedPaths;

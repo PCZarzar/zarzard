@@ -39,10 +39,11 @@ static constexpr int CONTENT_W = SCREEN_W - SIDE_PAD * 2;
   EpdFontFamily var(&var##F);
 FONT(ns14, notoserif_14_regular)
 FONT(ns16, notoserif_16_regular)
-FONT(ns18, notoserif_18_regular) FONT(ns20, notoserif_20_regular) FONT(ns22, notoserif_22_regular)
-    FONT(ns24, notoserif_24_regular) FONT(jb14, jetbrainsmono_14_regular) FONT(jb16, jetbrainsmono_16_regular)
-        FONT(jb18, jetbrainsmono_18_regular) FONT(jb20, jetbrainsmono_20_regular) FONT(jb22, jetbrainsmono_22_regular)
-            FONT(jb24, jetbrainsmono_24_regular) FONT(ui12, ubuntu_12_regular) FONT(ui10, ubuntu_10_regular)
+FONT(ns18, notoserif_18_regular)
+FONT(ns20, notoserif_20_regular) FONT(ns22, notoserif_22_regular) FONT(ns24, notoserif_24_regular)
+    FONT(jb14, jetbrainsmono_14_regular) FONT(jb16, jetbrainsmono_16_regular) FONT(jb18, jetbrainsmono_18_regular)
+        FONT(jb20, jetbrainsmono_20_regular) FONT(jb22, jetbrainsmono_22_regular) FONT(jb24, jetbrainsmono_24_regular)
+            FONT(ui12, ubuntu_12_regular) FONT(ui10, ubuntu_10_regular)
 
                 static const char* fontName(int id) {
   switch (id) {
@@ -213,6 +214,13 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 60; ++i) longAnswer += "palavra ";
     const auto b = layBack(r, card("Pergunta curta", longAnswer.c_str()));  // bounds checked inside layBack
     EXPECT(!b.lines.empty(), "long answer still shows lines");
+    // Huge front and hint stay inside the card area (checked in layFront)
+    std::string hugeFront, hugeHint;
+    for (int i = 0; i < 120; ++i) hugeFront += "frente ";
+    for (int i = 0; i < 120; ++i) hugeHint += "dica ";
+    const std::string huge = hugeFront + "\\ " + hugeHint + " \\";
+    const auto hf = layFront(r, card(huge.c_str(), "x"));
+    EXPECT(!hf.lines.empty(), "huge front still shows lines");
     std::string longQuestion;
     for (int i = 0; i < 80; ++i) longQuestion += "pergunta ";
     const auto q = layBack(r, card(longQuestion.c_str(), "`/etc/fstab`"));

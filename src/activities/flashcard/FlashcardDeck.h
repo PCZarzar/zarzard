@@ -36,7 +36,7 @@ struct DeckStats {
 
 class FlashcardDeck {
  public:
-  // Decode /n sequences in raw content to actual newlines.
+  // Decode /n sequences to newlines; "\/" is a literal '/' (no newline).
   // Exposed as public static so FlashcardCard member functions can use it.
   static std::string decodeNewlines(const std::string& raw);
 
@@ -49,9 +49,6 @@ class FlashcardDeck {
 
   // True when the CSV had more than MAX_CARDS_PER_DECK cards.
   bool isTruncated() const { return truncated; }
-
-  // Copy a CSV file from srcPath into FLASHCARD_DIR and load it.
-  bool importCsv(const char* srcPath);
 
   const std::string& getName() const { return name; }
   const std::string& getPath() const { return filePath; }

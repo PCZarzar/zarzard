@@ -21,12 +21,16 @@ static constexpr char CSV_HEADER[] = "card_id,front_content,back_content,sr_due,
 // FlashcardCard helpers
 // ---------------------------------------------------------------------------
 
-// Replace all occurrences of "/n" (the CSV-encoded newline) with '\n'.
+// "/n" (the CSV-encoded newline) becomes '\n'. "\/" is a literal '/' that
+// never starts a newline, so paths like /etc\/nsswitch.conf can be written.
 std::string FlashcardDeck::decodeNewlines(const std::string& raw) {
   std::string result;
   result.reserve(raw.size());
   for (size_t i = 0; i < raw.size(); ++i) {
-    if (raw[i] == '/' && i + 1 < raw.size() && raw[i + 1] == 'n') {
+    if (raw[i] == '\\' && i + 1 < raw.size() && raw[i + 1] == '/') {
+      result += '/';
+      ++i;
+    } else if (raw[i] == '/' && i + 1 < raw.size() && raw[i + 1] == 'n') {
       result += '\n';
       ++i;
     } else {
@@ -212,6 +216,8 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
   while (*ptr != '\0' && *ptr != '\n') ++ptr;
   if (*ptr == '\n') ++ptr;
 
+  // Rough upper bound (a card line is rarely under ~20 bytes), capped by the limit.
+  cards.reserve(std::min(MAX_CARDS_PER_DECK, len / 20 + 1));
   uint16_t nextId = 1;
   while (*ptr != '\0') {
     // Skip blank lines
@@ -355,55 +361,6 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
   return true;
 }
 
-bool FlashcardDeck::importCsv(const char* srcPath) {
-  if (!Storage.ensureDirectoryExists(FLASHCARD_DIR)) {
-    LOG_ERR(TAG, "Cannot create directory: %s", FLASHCARD_DIR);
-    return false;
-  }
-
-  // Extract filename from source path
-  const char* sep = strrchr(srcPath, '/');
-  const char* filename = sep ? sep + 1 : srcPath;
-
-  std::string destPath = std::string(FLASHCARD_DIR) + "/" + filename;
-
-  // Chunked file-to-file copy. Previously this used Storage.readFile()+writeFile()
-  // which allocates the whole file as String AND caps at 50KB, so a real 500-card
-  // deck was truncated at import time.
-  HalFile src;
-  if (!Storage.openFileForRead(TAG, srcPath, src)) {
-    LOG_ERR(TAG, "importCsv: cannot open source: %s", srcPath);
-    return false;
-  }
-
-  HalFile dst;
-  if (!Storage.openFileForWrite(TAG, destPath, dst)) {
-    LOG_ERR(TAG, "importCsv: cannot open destination: %s", destPath.c_str());
-    return false;
-  }
-
-  char buf[512];
-  bool ok = true;
-  while (src.available()) {
-    int n = src.read(buf, sizeof(buf));
-    if (n <= 0) break;
-    if (dst.write(buf, (size_t)n) != (size_t)n) {
-      LOG_ERR(TAG, "importCsv: write failed: %s", destPath.c_str());
-      ok = false;
-      break;
-    }
-  }
-  dst.flush();
-  dst.close();  // before remove() / reopen by loadFromCsv()
-
-  if (!ok) {
-    Storage.remove(destPath.c_str());
-    return false;
-  }
-
-  return loadFromCsv(destPath.c_str());
-}
-
 // ---------------------------------------------------------------------------
 // FlashcardDeck — queries
 // ---------------------------------------------------------------------------
@@ -424,6 +381,8 @@ DeckStats FlashcardDeck::getStats(uint32_t today) const {
 std::vector<size_t> FlashcardDeck::buildReviewQueue(uint32_t today, uint8_t newPerDay, uint16_t maxReview) const {
   std::vector<size_t> due;
   std::vector<size_t> newCards;
+  due.reserve(cards.size());
+  newCards.reserve(cards.size());
 
   for (size_t i = 0; i < cards.size(); ++i) {
     const FlashcardCard& c = cards[i];

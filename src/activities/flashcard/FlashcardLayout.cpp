@@ -202,13 +202,29 @@ FrontLayout layoutFront(const GfxRenderer& r, const std::string& main, const std
   FrontLayout out;
   out.hintFont = hintFont;
   if (!hint.empty()) out.hintLines = wrapText(r, hintFont, hint, area.width);
-  const int hintLineH = r.getLineHeight(hintFont);
+  const int hintLineH = std::max(1, r.getLineHeight(hintFont));
+  // A very long hint keeps at most half of the area, like the question on the back.
+  const int maxHintShare = std::max(1, (area.bottom - area.top) / 2 / hintLineH);
+  if ((int)out.hintLines.size() > maxHintShare) out.hintLines.resize(maxHintShare);
   const int hintReserve = out.hintLines.empty() ? 0 : hintLineH * (int)out.hintLines.size() + area.spacing;
   const int mainAvail = std::max(0, area.bottom - area.top - hintReserve);
 
   out.mainFont = pickMainFont(r, main, area.width, mainAvail, out.mainLines);
-  const int blockH = r.getLineHeight(out.mainFont) * (int)out.mainLines.size();
-  out.mainY = area.top + std::max(0, (mainAvail - blockH) / 2);
+  const int mainLineH = std::max(1, r.getLineHeight(out.mainFont));
+  // Text too long even at the smallest size: keep what fits (at least one
+  // line), then give the hint whatever room is left. Nothing is drawn past
+  // area.bottom, over the button hints.
+  const int areaH = std::max(0, area.bottom - area.top);
+  const int maxMainLines = std::max(1, mainAvail / mainLineH);
+  if ((int)out.mainLines.size() > maxMainLines) out.mainLines.resize(maxMainLines);
+  const int blockH = mainLineH * (int)out.mainLines.size();
+  if (!out.hintLines.empty()) {
+    const int hintRoom = areaH - blockH - area.spacing;
+    const int maxHintLines = hintRoom > 0 ? hintRoom / hintLineH : 0;
+    if ((int)out.hintLines.size() > maxHintLines) out.hintLines.resize(std::max(0, maxHintLines));
+  }
+  const int hintH = out.hintLines.empty() ? 0 : hintLineH * (int)out.hintLines.size() + area.spacing;
+  out.mainY = area.top + std::max(0, (areaH - hintH - blockH) / 2);
   out.hintY = out.mainY + blockH + area.spacing;
   return out;
 }
