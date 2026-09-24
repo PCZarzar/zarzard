@@ -1,0 +1,8 @@
+card_id,front_content,back_content,sr_due,sr_interval,sr_ease
+1,"Contar as linhas de um arquivo \ coreutils \","`wc -l notas.txt`",,,
+2,"Arquivo que define os pontos de montagem aplicados no boot","`/etc/fstab`",,,
+3,"Diretório de units customizadas pelo administrador","`/etc/systemd/system/multi-user.target.wants/`",,,
+4,"O que o bit SUID faz em um executável?","O processo roda com o UID do dono do arquivo, não com o de quem executou.",,,
+5,"Filtrar linhas terminadas em .conf com grep '\\.conf$'","Usa âncora de fim de linha e ponto escapado.",,,
+6,"Regex com barra: grep '\\.conf$' \ escape do ponto \","`grep '\.conf$' arquivos.txt`",,,
+7,"Quebra/nde linha na frente","Linha 1/nLinha 2",,,
