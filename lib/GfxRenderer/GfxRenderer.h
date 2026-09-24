@@ -300,6 +300,8 @@ class GfxRenderer {
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
   int getLineHeight(int fontId, float compression) const;
+  // True when fontId has a glyph for cp (built-in interval coverage, no fallback font).
+  bool fontHasCodepoint(int fontId, uint32_t cp) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than

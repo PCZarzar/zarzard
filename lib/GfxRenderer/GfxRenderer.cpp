@@ -2098,6 +2098,11 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
   return fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
 }
 
+bool GfxRenderer::fontHasCodepoint(const int fontId, const uint32_t cp) const {
+  const auto fontIt = fontMap.find(fontId);
+  return fontIt != fontMap.end() && fontIt->second.hasCodepoint(cp);
+}
+
 int GfxRenderer::getLineHeight(const int fontId) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
