@@ -106,6 +106,23 @@ Test deck `test/decks/lpic_test.csv`:
   `HalClock::syncFromNTP`, which cannot be reused because it returns early on
   boards without an RTC (the X4).
 
+## Final build
+
+| env | firmware.bin | app0 used | free |
+|---|---|---|---|
+| `gh_release` (installed) | 5,596,848 B | 85.40% | **14.60%** |
+| `default` | 5,641,536 B | 86.08% | 13.92% |
+
+Baseline `gh_release` was 5,440,480 B (16.98% free): +156,368 B. Requirement ≥ 10%: OK.
+No new compiler warnings; cppcheck: 0 high / 0 medium (2 low style notes).
+Installed image: `crosspoint-flashcards.bin` =
+`sha256 04341d65c5cfe9133f36bf86c51533646b8bf38731e17209c159ad5ba7a67438`
+(commit `e3a05bf2`; copy in `~/xteink/releases/`). `esptool image-info`: ESP32-C3,
+7 segments, checksum and SHA-256 valid; board tag `CROSSPOINT-BOARD-V1:x4;`
+(same as the official image, so CrossPoint's SD updater accepts it).
+The official rescue image `update.bin` is byte-identical to the GitHub release
+asset `crosspoint-1.6.0-x3-x4.bin` (`sha256 832f3651…a1ad436`).
+
 ## Host tests (`bash test/flashcard/run.sh`)
 
 g++ builds of the real `FlashcardDeck`, `FlashcardSrs`, `FlashcardClock`,
