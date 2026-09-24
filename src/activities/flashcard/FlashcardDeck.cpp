@@ -193,8 +193,9 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
     return false;
   }
   const size_t bytesRead = Storage.readFileToBuffer(path, buffer.get(), fsize + 1);
-  if (bytesRead == 0) {
-    LOG_ERR(TAG, "Failed to read CSV: %s", path);
+  if (bytesRead != fsize) {
+    // A partial read would load (and later save) a deck missing its tail.
+    LOG_ERR(TAG, "Short read (%u of %u bytes): %s", (unsigned)bytesRead, (unsigned)fsize, path);
     return false;
   }
   // Drop stray NUL bytes (older firmware wrote one after the header), which
@@ -278,6 +279,15 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
   // aborted (→ reboot) on larger decks when free heap was already consumed
   // by two font caches. ~200 bytes of stack + a 2KB line buffer is enough.
   std::string tmpPath = std::string(path) + ".tmp";
+
+  // A previous save that failed after removing the CSV left the only complete
+  // copy in the .tmp; put it back before the .tmp is truncated below.
+  if (!Storage.exists(path) && Storage.exists(tmpPath.c_str())) {
+    if (!Storage.rename(tmpPath.c_str(), path)) {
+      LOG_ERR(TAG, "Cannot restore %s, not overwriting it", tmpPath.c_str());
+      return false;
+    }
+  }
 
   HalFile out;
   if (!Storage.openFileForWrite(TAG, tmpPath, out)) {
@@ -543,7 +553,7 @@ std::vector<std::string> FlashcardDeck::listDecks() {
 std::string FlashcardDeck::fileNameToDisplayName(const std::string& filename) {
   // Strip .csv extension
   std::string name = filename;
-  if (name.size() > 4 && name.substr(name.size() - 4) == ".csv") {
+  if (hasCsvSuffix(name)) {
     name = name.substr(0, name.size() - 4);
   }
   // Replace underscores with spaces

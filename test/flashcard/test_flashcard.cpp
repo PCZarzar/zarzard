@@ -296,6 +296,35 @@ static void testSaveAndRecovery(const std::string& root) {
   CHECK_EQ(slurp(root + "/flashcard/lpic.csv"), full);
   CHECK_EQ(fs::exists(root + "/flashcard/lpic.csv.tmp"), false);
 
+  // Save after a failed rename (only the .tmp left): restores it, then saves
+  {
+    FlashcardDeck d2;
+    CHECK_EQ(d2.loadFromCsv("/flashcard/lpic.csv"), true);
+    fs::rename(root + "/flashcard/lpic.csv", root + "/flashcard/lpic.csv.tmp");
+    CHECK_EQ(d2.saveToCsv("/flashcard/lpic.csv"), true);
+    CHECK_EQ(fs::exists(root + "/flashcard/lpic.csv.tmp"), false);
+    CHECK_EQ(slurp(root + "/flashcard/lpic.csv"), full);
+  }
+
+  // Over the card limit: loads truncated and is never written back
+  {
+    std::string big = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+    for (int i = 1; i <= 501; ++i) big += std::to_string(i) + ",f" + std::to_string(i) + ",b,,,\n";
+    {
+      std::ofstream(root + "/flashcard/big.csv", std::ios::binary) << big;
+    }
+    FlashcardDeck b;
+    CHECK_EQ(b.loadFromCsv("/flashcard/big.csv"), true);
+    CHECK_EQ(b.isTruncated(), true);
+    CHECK_EQ(b.getCards().size(), MAX_CARDS_PER_DECK);
+    CHECK_EQ(b.saveToCsv("/flashcard/big.csv"), false);
+    CHECK_EQ(slurp(root + "/flashcard/big.csv"), big);
+    FlashcardDeck small;
+    CHECK_EQ(small.loadFromCsv("/flashcard/lpic.csv"), true);
+    CHECK_EQ(small.isTruncated(), false);
+    fs::remove(root + "/flashcard/big.csv");
+  }
+
   // A stale .tmp next to an existing CSV is left alone (the CSV wins)
   {
     std::ofstream(root + "/flashcard/lpic.csv.tmp") << "garbage";

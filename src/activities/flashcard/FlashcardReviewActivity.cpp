@@ -63,8 +63,9 @@ void FlashcardReviewActivity::onEnter() {
   }
 
   today = FlashcardSrs::getToday();
-  if (!deckLoaded || today == 0) {
-    // No deck, or no trustworthy date (mode selection blocks this): nothing to rate.
+  if (!deckLoaded || deck.isTruncated() || today == 0) {
+    // Nothing that could be saved, or no trustworthy date (mode selection
+    // blocks both): nothing to rate.
     reviewQueue.clear();
     showDone();
     return;

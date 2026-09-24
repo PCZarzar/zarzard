@@ -26,6 +26,7 @@ void FlashcardModeSelectActivity::onEnter() {
   Activity::onEnter();
   refreshClockState();
   selectedIndex = FLASHCARD_STORE.lastMode == 1 ? ROW_LINEAR : ROW_SPACED;
+  if (selectedIndex == ROW_SPACED && deckTooLarge) selectedIndex = ROW_LINEAR;
   if (selectedIndex == ROW_SPACED && clockState == FlashcardClock::State::Unset) selectedIndex = ROW_SYNC;
   requestUpdate();
 }
@@ -65,6 +66,7 @@ void FlashcardModeSelectActivity::loop() {
                              });
       return;
     case ROW_SPACED:
+      if (deckTooLarge) return;  // ratings could not be saved
       if (clockState == FlashcardClock::State::Unset) {
         // Never rate cards against an unknown date: it would write bogus due dates.
         selectedIndex = ROW_SYNC;
@@ -93,7 +95,9 @@ void FlashcardModeSelectActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, deckName.c_str());
 
   const char* spacedSub = nullptr;
-  if (clockState == FlashcardClock::State::Unset) {
+  if (deckTooLarge) {
+    spacedSub = tr(STR_FLASHCARD_TOO_MANY_CARDS);
+  } else if (clockState == FlashcardClock::State::Unset) {
     spacedSub = tr(STR_FLASHCARD_CLOCK_NOT_SET);
   } else if (clockState == FlashcardClock::State::Stale) {
     spacedSub = tr(STR_FLASHCARD_SYNC_RECOMMENDED);

@@ -41,6 +41,7 @@ void FlashcardDeckListActivity::loadDeckList() {
     entry.name = deck.getName();
     entry.path = path;
     entry.stats = deck.getStats(today);
+    entry.truncated = deck.isTruncated();
     totalDueToday += entry.stats.dueCards;
     newTotal += entry.stats.newCards;
     decks.push_back(std::move(entry));
@@ -89,7 +90,9 @@ FlashcardNextDeck FlashcardDeckListActivity::resolveNextDeck() {
     visited.reserve(decks.size());
     for (const auto& d : decks) {
       stats.push_back(d.stats);
-      visited.push_back(std::find(visitedPaths.begin(), visitedPaths.end(), d.path) != visitedPaths.end());
+      // Decks over the card limit are Linear only: skip them like visited ones.
+      visited.push_back(d.truncated ||
+                        std::find(visitedPaths.begin(), visitedPaths.end(), d.path) != visitedPaths.end());
     }
     next = FlashcardDeck::nextSpacedDeck(stats, visited, current, quota);
     if (next >= 0) {
@@ -149,7 +152,8 @@ void FlashcardDeckListActivity::loop() {
   const int deckCount = static_cast<int>(decks.size());
   if (selectedIndex < deckCount) {
     const int deckIndex = selectedIndex;
-    startActivityForResult(std::make_unique<FlashcardModeSelectActivity>(renderer, mappedInput, decks[deckIndex].name),
+    startActivityForResult(std::make_unique<FlashcardModeSelectActivity>(renderer, mappedInput, decks[deckIndex].name,
+                                                                         decks[deckIndex].truncated),
                            [this, deckIndex](const ActivityResult& result) {
                              const auto* menu = std::get_if<MenuResult>(&result.data);
                              if (result.isCancelled || !menu || deckIndex >= static_cast<int>(decks.size())) return;
@@ -214,9 +218,9 @@ void FlashcardDeckListActivity::render(RenderLock&&) {
           renderer.truncatedText(UI_12_FONT_ID, d.name.c_str(), cardWidth - 16, EpdFontFamily::BOLD);
       renderer.drawText(UI_12_FONT_ID, sidePad + 8, y + 8, name.c_str(), !inv, EpdFontFamily::BOLD);
       char stats[96];
-      snprintf(stats, sizeof(stats), "%s %u   %s %u   %s %u", tr(STR_FLASHCARD_NEW),
+      snprintf(stats, sizeof(stats), "%s %u   %s %u   %s %u%s", tr(STR_FLASHCARD_NEW),
                static_cast<unsigned>(d.stats.newCards), tr(STR_FLASHCARD_DUE), static_cast<unsigned>(d.stats.dueCards),
-               tr(STR_FLASHCARD_TOTAL), static_cast<unsigned>(d.stats.totalCards));
+               tr(STR_FLASHCARD_TOTAL), static_cast<unsigned>(d.stats.totalCards), d.truncated ? "+" : "");
       renderer.drawText(SMALL_FONT_ID, sidePad + 8, y + 8 + line12 + 4, stats, !inv);
     } else {
       renderer.drawText(UI_12_FONT_ID, sidePad + 8, y + (rowH - line12) / 2, tr(STR_FLASHCARD_SETTINGS), !inv);

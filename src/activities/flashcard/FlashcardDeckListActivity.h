@@ -16,6 +16,7 @@ class FlashcardDeckListActivity final : public Activity {
     std::string name;
     std::string path;
     DeckStats stats;
+    bool truncated = false;  // more than MAX_CARDS_PER_DECK: Linear only
   };
 
   ButtonNavigator buttonNavigator;
