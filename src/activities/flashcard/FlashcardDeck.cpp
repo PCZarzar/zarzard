@@ -168,6 +168,7 @@ void FlashcardDeck::writeCsvField(std::string& out, const std::string& field) {
 
 bool FlashcardDeck::loadFromCsv(const char* path) {
   cards.clear();
+  truncated = false;
   filePath = path;
 
   // Use size-aware read — SDCardManager::readFile caps at 50KB and would
@@ -220,6 +221,7 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
 
     if (cards.size() >= MAX_CARDS_PER_DECK) {
       LOG_ERR(TAG, "Deck %s exceeds MAX_CARDS_PER_DECK (%u), truncating", path, (unsigned)MAX_CARDS_PER_DECK);
+      truncated = true;
       break;
     }
 
@@ -266,6 +268,10 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
 }
 
 bool FlashcardDeck::saveToCsv(const char* path) const {
+  if (truncated) {
+    LOG_ERR(TAG, "Not saving truncated deck (> %u cards): %s", (unsigned)MAX_CARDS_PER_DECK, path);
+    return false;
+  }
   // Stream the CSV directly to the SD card one line at a time. The previous
   // implementation built the whole file in a std::string and then copied it
   // into an Arduino String before writing — under -fno-exceptions this

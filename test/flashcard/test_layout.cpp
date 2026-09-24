@@ -3,6 +3,7 @@
 // Lyra theme metrics (the device's uiTheme; tallest header of all themes).
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <Utf8.h>
 #include <builtinFonts/jetbrainsmono_14_regular.h>
 #include <builtinFonts/jetbrainsmono_16_regular.h>
 #include <builtinFonts/jetbrainsmono_18_regular.h>
@@ -15,6 +16,7 @@
 #include <builtinFonts/notoserif_20_regular.h>
 #include <builtinFonts/notoserif_22_regular.h>
 #include <builtinFonts/notoserif_24_regular.h>
+#include <builtinFonts/ubuntu_10_regular.h>
 #include <builtinFonts/ubuntu_12_regular.h>
 
 #include <cstdio>
@@ -36,10 +38,11 @@ static constexpr int CONTENT_W = SCREEN_W - SIDE_PAD * 2;
   EpdFont var##F(&data); \
   EpdFontFamily var(&var##F);
 FONT(ns14, notoserif_14_regular)
-FONT(ns16, notoserif_16_regular) FONT(ns18, notoserif_18_regular) FONT(ns20, notoserif_20_regular)
-    FONT(ns22, notoserif_22_regular) FONT(ns24, notoserif_24_regular) FONT(jb14, jetbrainsmono_14_regular)
-        FONT(jb16, jetbrainsmono_16_regular) FONT(jb18, jetbrainsmono_18_regular) FONT(jb20, jetbrainsmono_20_regular)
-            FONT(jb22, jetbrainsmono_22_regular) FONT(jb24, jetbrainsmono_24_regular) FONT(ui12, ubuntu_12_regular)
+FONT(ns16, notoserif_16_regular)
+FONT(ns18, notoserif_18_regular) FONT(ns20, notoserif_20_regular) FONT(ns22, notoserif_22_regular)
+    FONT(ns24, notoserif_24_regular) FONT(jb14, jetbrainsmono_14_regular) FONT(jb16, jetbrainsmono_16_regular)
+        FONT(jb18, jetbrainsmono_18_regular) FONT(jb20, jetbrainsmono_20_regular) FONT(jb22, jetbrainsmono_22_regular)
+            FONT(jb24, jetbrainsmono_24_regular) FONT(ui12, ubuntu_12_regular) FONT(ui10, ubuntu_10_regular)
 
                 static const char* fontName(int id) {
   switch (id) {
@@ -91,38 +94,35 @@ struct Laid {
   bool cut;
 };
 
+static const FlashcardLayout::CardArea AREA{CONTENT_TOP, CONTENT_BOTTOM, CONTENT_W, VSPACE};
+
+static bool anyCut(GfxRenderer& r, int font, const std::string& text) {
+  bool cut = false;
+  FlashcardLayout::wrapText(r, font, text, CONTENT_W, &cut);
+  return cut;
+}
+
+// Same calls FlashcardReviewActivity::renderCard makes.
 static Laid layFront(GfxRenderer& r, const FlashcardCard& c) {
   std::string main, hint;
   c.parseFront(main, hint);
-  int hintH = 0;
-  if (!hint.empty())
-    hintH = r.getLineHeight(UI_12_FONT_ID) * (int)FlashcardLayout::wrapText(r, UI_12_FONT_ID, hint, CONTENT_W).size() +
-            VSPACE;
-  Laid l;
-  l.font = FlashcardLayout::pickMainFont(r, main, CONTENT_W, CONTENT_BOTTOM - CONTENT_TOP - hintH, l.lines);
-  l.cut = false;
-  FlashcardLayout::wrapText(r, l.font, main, CONTENT_W, &l.cut);
-  return l;
+  const auto f = FlashcardLayout::layoutFront(r, main, hint, AREA, UI_10_FONT_ID);
+  const int bottom = f.hintLines.empty() ? f.mainY + r.getLineHeight(f.mainFont) * (int)f.mainLines.size()
+                                         : f.hintY + r.getLineHeight(f.hintFont) * (int)f.hintLines.size();
+  EXPECT(f.mainY >= CONTENT_TOP && bottom <= CONTENT_BOTTOM, "front fits the card area");
+  for (auto& line : f.mainLines) EXPECT(r.getTextWidth(f.mainFont, line.c_str()) <= CONTENT_W, "front line too wide");
+  return {f.mainFont, f.mainLines, anyCut(r, f.mainFont, main)};
 }
 
 static Laid layBack(GfxRenderer& r, const FlashcardCard& c) {
-  int y = CONTENT_TOP + r.getLineHeight(UI_12_FONT_ID) *
-                            (int)FlashcardLayout::wrapText(r, UI_12_FONT_ID, c.frontMain(), CONTENT_W).size();
-  y += VSPACE * 2;
-  const int budget = CONTENT_BOTTOM - y;
-  Laid l;
-  l.cut = false;
-  if (FlashcardLayout::isMonoAnswer(c.backContent)) {
-    l.font =
-        FlashcardLayout::pickMonoFont(r, c.backContent.substr(1, c.backContent.size() - 2), CONTENT_W, budget, l.lines);
-  } else {
-    const std::string text = FlashcardDeck::decodeNewlines(c.backContent);
-    l.font = FlashcardLayout::pickMainFont(r, text, CONTENT_W, budget, l.lines);
-    FlashcardLayout::wrapText(r, l.font, text, CONTENT_W, &l.cut);
-  }
-  for (auto& line : l.lines) EXPECT(r.getTextWidth(l.font, line.c_str()) <= CONTENT_W, "line wider than screen");
-  EXPECT(r.getLineHeight(l.font) * (int)l.lines.size() <= budget, "answer taller than area");
-  return l;
+  const auto b = FlashcardLayout::layoutBack(r, c.frontMain(), c.backContent, AREA, UI_12_FONT_ID);
+  const int lineH = r.getLineHeight(b.answerFont);
+  EXPECT(b.separatorY > b.questionY && b.answerY > b.separatorY, "back order: question, separator, answer");
+  EXPECT(b.answerY + lineH * (int)b.answerLines.size() <= CONTENT_BOTTOM, "answer inside card area");
+  for (auto& line : b.answerLines)
+    EXPECT(r.getTextWidth(b.answerFont, line.c_str()) <= CONTENT_W, "answer line too wide");
+  const bool mono = FlashcardLayout::isMonoAnswer(c.backContent);
+  return {b.answerFont, b.answerLines, !mono && anyCut(r, b.answerFont, FlashcardDeck::decodeNewlines(c.backContent))};
 }
 
 static void print(const char* side, const Laid& l) {
@@ -146,6 +146,7 @@ int main(int argc, char** argv) {
   r.insertFont(JETBRAINSMONO_22_FONT_ID, jb22);
   r.insertFont(JETBRAINSMONO_24_FONT_ID, jb24);
   r.insertFont(UI_12_FONT_ID, ui12);
+  r.insertFont(UI_10_FONT_ID, ui10);
 
   FlashcardDeck deck;
   if (!deck.loadFromCsv("/lpic_test.csv")) {
@@ -178,6 +179,48 @@ int main(int argc, char** argv) {
   EXPECT(backs[5].lines.size() >= 1 && backs[5].lines[0].find('\\') != std::string::npos, "card 6 literal backslash");
   EXPECT(backs[6].lines.size() == 2, "card 7 back: two lines");
   EXPECT(layFront(r, cards[6]).lines.size() >= 2 && layFront(r, cards[6]).lines[0] == "Quebra", "card 7 front newline");
+
+  // Stress cases
+  auto card = [](const char* front, const char* back) {
+    FlashcardCard c;
+    c.frontContent = front;
+    c.backContent = back;
+    return c;
+  };
+  auto covered = [&r](int font, const std::vector<std::string>& lines) {
+    for (const auto& line : lines) {
+      const unsigned char* p = reinterpret_cast<const unsigned char*>(line.c_str());
+      uint32_t cp;
+      while ((cp = utf8NextCodepoint(&p))) {
+        if (cp >= 0x20 && !r.fontHasCodepoint(font, cp) && r.fontHasCodepoint(NOTOSERIF_14_FONT_ID, cp)) return false;
+      }
+    }
+    return true;
+  };
+  {
+    // Cyrillic / Latin Extended-A are in serif 14-18 but not in the Latin-only
+    // 20-24 serif and mono subsets: the layout must pick a size that has them.
+    const auto f = layFront(r, card("Qual a letra \u0416?", "x"));
+    EXPECT(covered(f.font, f.lines), "front with Cyrillic drawn with a font that has it");
+    const auto b = layBack(r, card("q", "`Erd\u0151s`"));
+    EXPECT(covered(b.font, b.lines) && !isMono(b.font), "mono answer with a non-subset letter falls back to serif");
+    // No built-in font has an arrow: it must not push a short card down to 14.
+    const auto arrow = layFront(r, card("A \u2192 B", "x"));
+    EXPECT(arrow.font == NOTOSERIF_24_FONT_ID, "undrawable arrow does not shrink the card");
+  }
+  {
+    std::string longAnswer;
+    for (int i = 0; i < 60; ++i) longAnswer += "palavra ";
+    const auto b = layBack(r, card("Pergunta curta", longAnswer.c_str()));  // bounds checked inside layBack
+    EXPECT(!b.lines.empty(), "long answer still shows lines");
+    std::string longQuestion;
+    for (int i = 0; i < 80; ++i) longQuestion += "pergunta ";
+    const auto q = layBack(r, card(longQuestion.c_str(), "`/etc/fstab`"));
+    EXPECT(q.lines.size() == 1, "long question leaves room for the answer");
+    const auto longPath =
+        layBack(r, card("q", "`/a/very/long/path/that/keeps/going/and/going/and/going/forever/and/ever.conf`"));
+    EXPECT(!longPath.lines.empty(), "long mono path shows lines");
+  }
 
   printf("layout: %d failures\n", failures);
   return failures ? 1 : 0;

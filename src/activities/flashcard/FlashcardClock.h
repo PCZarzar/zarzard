@@ -28,7 +28,4 @@ State evaluate(int64_t nowUnix, uint32_t lastSyncUnix);
 // is UTC + offsetMinutes. Same day numbering as FlashcardSrs::parseDateStr().
 uint32_t dayIndex(int64_t nowUnix, int16_t offsetMinutes);
 
-// Whole days since the last sync (0 if never synced or clock behind it).
-uint32_t daysSinceSync(int64_t nowUnix, uint32_t lastSyncUnix);
-
 }  // namespace FlashcardClock

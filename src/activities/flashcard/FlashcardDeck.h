@@ -44,7 +44,11 @@ class FlashcardDeck {
   bool loadFromCsv(const char* path);
 
   // Atomically write deck to CSV: write to .tmp, remove original, rename.
+  // Refuses to write a truncated deck (would drop the cards past the limit).
   bool saveToCsv(const char* path) const;
+
+  // True when the CSV had more than MAX_CARDS_PER_DECK cards.
+  bool isTruncated() const { return truncated; }
 
   // Copy a CSV file from srcPath into FLASHCARD_DIR and load it.
   bool importCsv(const char* srcPath);
@@ -83,6 +87,7 @@ class FlashcardDeck {
   static std::vector<std::string> listDecks();
 
  private:
+  bool truncated = false;
   std::string name;
   std::string filePath;
   std::vector<FlashcardCard> cards;

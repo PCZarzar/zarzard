@@ -7,7 +7,6 @@
 namespace FlashcardClockSync {
 
 FlashcardClock::State state();
-uint32_t daysSinceSync();
 
 // Sets the system clock from NTP and records the sync in FlashcardStore.
 // WiFi must already be connected. Blocks for up to ~5 s.

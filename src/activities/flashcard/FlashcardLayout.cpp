@@ -3,6 +3,9 @@
 #include <GfxRenderer.h>
 #include <Utf8.h>
 
+#include <algorithm>
+
+#include "FlashcardDeck.h"
 #include "fontIds.h"
 
 namespace FlashcardLayout {
@@ -86,14 +89,16 @@ std::vector<std::string> wrapText(GfxRenderer& r, int fontId, const std::string&
 // never splits a word. Falls back to 14 (codepoint split allowed).
 static constexpr int MAX_MAIN_LINES = 4;
 
-// The 20-24 serif and all mono sizes are Latin-only subsets; a size that lacks
-// a glyph of the text is skipped so nothing renders invisible.
+// The 20-24 serif and all mono sizes are Latin-only subsets. A size is
+// skipped when it lacks a glyph the full-coverage serif (14) has, so nothing
+// the built-in fonts can draw ends up invisible. Codepoints no built-in font
+// has (e.g. arrows) do not affect the choice.
 static bool fontCovers(GfxRenderer& r, int fontId, const std::string& text) {
   const unsigned char* p = reinterpret_cast<const unsigned char*>(text.c_str());
   uint32_t cp;
   while ((cp = utf8NextCodepoint(&p))) {
     if (cp < 0x20) continue;  // '\n' and other controls are never drawn
-    if (!r.fontHasCodepoint(fontId, cp)) return false;
+    if (!r.fontHasCodepoint(fontId, cp) && r.fontHasCodepoint(NOTOSERIF_14_FONT_ID, cp)) return false;
   }
   return true;
 }
@@ -189,6 +194,54 @@ int pickMonoFont(GfxRenderer& r, const std::string& text, int maxWidth, int avai
   outLines.clear();
   wrapByCodepoint(r, JETBRAINSMONO_14_FONT_ID, text, maxWidth, outLines);
   return JETBRAINSMONO_14_FONT_ID;
+}
+
+FrontLayout layoutFront(GfxRenderer& r, const std::string& main, const std::string& hint, const CardArea& area,
+                        const int hintFont) {
+  FrontLayout out;
+  out.hintFont = hintFont;
+  if (!hint.empty()) out.hintLines = wrapText(r, hintFont, hint, area.width);
+  const int hintLineH = r.getLineHeight(hintFont);
+  const int hintReserve = out.hintLines.empty() ? 0 : hintLineH * (int)out.hintLines.size() + area.spacing;
+  const int mainAvail = std::max(0, area.bottom - area.top - hintReserve);
+
+  out.mainFont = pickMainFont(r, main, area.width, mainAvail, out.mainLines);
+  const int blockH = r.getLineHeight(out.mainFont) * (int)out.mainLines.size();
+  out.mainY = area.top + std::max(0, (mainAvail - blockH) / 2);
+  out.hintY = out.mainY + blockH + area.spacing;
+  return out;
+}
+
+BackLayout layoutBack(GfxRenderer& r, const std::string& question, const std::string& backContent, const CardArea& area,
+                      const int questionFont) {
+  BackLayout out;
+  out.questionFont = questionFont;
+  out.questionY = area.top;
+  out.questionLines = wrapText(r, questionFont, question, area.width);
+  const int qLineH = r.getLineHeight(questionFont);
+  // A very long question keeps at most half of the area for itself.
+  const int maxQuestionLines = std::max(1, (area.bottom - area.top) / 2 / std::max(1, qLineH));
+  if ((int)out.questionLines.size() > maxQuestionLines) out.questionLines.resize(maxQuestionLines);
+
+  int y = area.top + qLineH * (int)out.questionLines.size() + area.spacing;
+  out.separatorY = y;
+  y += area.spacing;
+
+  const int answerTop = y;
+  const int budget = std::max(0, area.bottom - answerTop);
+  if (isMonoAnswer(backContent)) {
+    out.answerFont =
+        pickMonoFont(r, backContent.substr(1, backContent.size() - 2), area.width, budget, out.answerLines);
+  } else {
+    // Mono answers stay literal so paths like /etc/nginx keep their "/n".
+    out.answerFont = pickMainFont(r, FlashcardDeck::decodeNewlines(backContent), area.width, budget, out.answerLines);
+  }
+  const int lineH = r.getLineHeight(out.answerFont);
+  const int maxLines = lineH > 0 ? budget / lineH : 0;
+  if ((int)out.answerLines.size() > maxLines) out.answerLines.resize(std::max(0, maxLines));
+  const int blockH = lineH * (int)out.answerLines.size();
+  out.answerY = answerTop + std::max(0, (budget - blockH) / 2);
+  return out;
 }
 
 }  // namespace FlashcardLayout

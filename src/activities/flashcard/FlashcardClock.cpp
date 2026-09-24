@@ -22,9 +22,4 @@ uint32_t dayIndex(const int64_t nowUnix, const int16_t offsetMinutes) {
   return static_cast<uint32_t>((local - EPOCH_2000) / SECONDS_PER_DAY);
 }
 
-uint32_t daysSinceSync(const int64_t nowUnix, const uint32_t lastSyncUnix) {
-  if (lastSyncUnix == 0 || nowUnix <= static_cast<int64_t>(lastSyncUnix)) return 0;
-  return static_cast<uint32_t>((nowUnix - static_cast<int64_t>(lastSyncUnix)) / SECONDS_PER_DAY);
-}
-
 }  // namespace FlashcardClock

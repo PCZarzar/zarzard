@@ -16,10 +16,6 @@ FlashcardClock::State state() {
   return FlashcardClock::evaluate(static_cast<int64_t>(time(nullptr)), FLASHCARD_STORE.lastSyncUnix);
 }
 
-uint32_t daysSinceSync() {
-  return FlashcardClock::daysSinceSync(static_cast<int64_t>(time(nullptr)), FLASHCARD_STORE.lastSyncUnix);
-}
-
 bool syncFromNtp() {
   if (WiFi.status() != WL_CONNECTED) {
     LOG_ERR("FCLK", "WiFi not connected, cannot sync NTP");

@@ -239,8 +239,6 @@ static void testClock() {
   CHECK_EQ(FlashcardClock::evaluate(t2026_09_24_02h + 4 * 86400, (uint32_t)t2026_09_24_02h), State::Stale);
   CHECK_EQ(FlashcardClock::evaluate(t2026_09_24_02h, 0), State::Stale);
   CHECK_EQ(FlashcardClock::evaluate(t2026_09_24_02h - 2 * 86400, (uint32_t)t2026_09_24_02h), State::Stale);
-  CHECK_EQ(FlashcardClock::daysSinceSync(t2026_09_24_02h + 4 * 86400 + 5, (uint32_t)t2026_09_24_02h), (uint32_t)4);
-  CHECK_EQ(FlashcardClock::daysSinceSync(t2026_09_24_02h, 0), (uint32_t)0);
 }
 
 static std::string slurp(const std::string& path) {
