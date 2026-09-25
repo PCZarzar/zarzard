@@ -33,15 +33,17 @@ class FlashcardReviewActivity final : public Activity {
   // MenuResult::action set when the user asks to open the next deck.
   static constexpr int RESULT_NEXT_DECK = 1;
 
+  // resumeLinear: continue the pass saved for this deck (Linear only); a fresh
+  // Linear start discards any saved pass.
   FlashcardReviewActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& deckPath,
-                          ReviewMode mode, bool shuffle, FlashcardNextDeckProvider nextDeck);
+                          ReviewMode mode, bool shuffle, bool resumeLinear, FlashcardNextDeckProvider nextDeck);
   void onEnter() override;
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
 
  private:
-  enum class CardState { Front, Back, ConfirmLeave, Summary };
+  enum class CardState { Front, Back, Summary };
   enum class SummaryOption { Repeat, Full, NextDeck, Exit };
 
   void flipCard();
@@ -53,14 +55,16 @@ class FlashcardReviewActivity final : public Activity {
   void loopSummary();
   void buildSummaryOptions();
   void finishWithNextDeck();
+  void saveLinearProgress();
+  void displayWithRefreshCycle();
   void renderCard(const FlashcardCard& card);
-  void renderConfirmLeave();
   void renderSummary();
 
   FlashcardDeck deck;
   std::string deckPath;
   ReviewMode mode;
   bool shuffle;
+  bool resumeLinear;
   FlashcardNextDeckProvider nextDeckProvider;
   bool deckLoaded = false;
 
@@ -75,10 +79,13 @@ class FlashcardReviewActivity final : public Activity {
   std::array<uint16_t, 4> ratingCounts{};  // indexed by SrsRating
 
   CardState cardState = CardState::Front;
+  int pagesUntilFullRefresh = 1;  // first screen of the session clears e-ink ghosting
 
   // Linear mode only — RAM state, nothing is persisted.
   FlashcardLinearSession linear;
   std::string nextDeckName;  // resolved when a pass ends
+  bool linearDirty = false;  // pass changed since the last progress save
+  uint8_t marksSinceSave = 0;
   std::vector<SummaryOption> summaryOptions;
   int summarySelected = 0;
   ButtonNavigator buttonNavigator;

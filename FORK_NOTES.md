@@ -105,6 +105,20 @@ Test deck `test/decks/lpic_test.csv`:
   (a hand-edited absurd `sr_interval` can wrap); the NTP loop mirrors
   `HalClock::syncFromNTP`, which cannot be reused because it returns early on
   boards without an RTC (the X4).
+- **Linear progress is saved (user request, overrides spec 3.5/3.6).** Back on a
+  card saves and leaves (no "progress will be lost" prompt). The pass (number,
+  position, shuffled order, Missed/Unsure/Known piles) is written to
+  `/.crosspoint/fc_linear_<hash>.json` every 5 cards, on Back/Exit and when the
+  device sleeps; **the deck CSV is still never written in Linear**. Opening the deck
+  in Linear offers *Continue (Pass N · i/n)* or *Restart from the beginning*.
+  The file stores a fingerprint of the cards' ids/fronts/backs: if the CSV's cards
+  changed, or the file is inconsistent, the pass restarts instead of pointing at
+  wrong cards. Chained "Next deck" resumes that deck's saved pass if it has one.
+  Waking from sleep still opens Home (CrossPoint behaviour); reopen the deck →
+  Continue.
+- **E-ink ghosting.** Card screens used only fast refresh, so remnants built up and
+  showed through the sleep screen. They now follow the reader's cadence: the first
+  screen of a session and every *Refresh Frequency* screens do a half refresh.
 
 ## Final build
 
@@ -176,8 +190,12 @@ Setup: `test/decks/lpic_test.csv` is copied to `/flashcard/` on the SD. Expected
    warning** (clock kept across deep sleep).
 5. **Time zone** — Flashcard Settings → Time zone shows `UTC-03:00`.
 6. **Linear doesn't write** [1] — Linear on `lpic test`, mark a mix of
-   Missed/Unsure/Known through a full pass, *Repeat*, then *Exit*; also Back on a
-   front → "Leave pass?" → Confirm. Put the SD in the PC: `sha256sum` unchanged.
+   Missed/Unsure/Known through a full pass, *Repeat*, then *Exit*. Put the SD in
+   the PC: `sha256sum` of the CSV unchanged (progress lives in `/.crosspoint/`).
+6b. **Linear progress** — stop at card 30 with Back → reopen the deck → Linear →
+   *Continue (Pass 1 · 30/…)* shows the same card, same order, same pile counts at
+   the end. Stop again, put the device to sleep, wake → reopen → Continue works.
+   *Restart* starts at 1 and the old pass is gone.
 7. **Linear buttons / header** — back side: Back=Missed, Prev=Unsure, Next=Known,
    Confirm does nothing. Header `Pass 1 · i/7`. A Missed card does not return in
    the same pass.

@@ -47,6 +47,10 @@ class FlashcardDeck {
   // Refuses to write a truncated deck (would drop the cards past the limit).
   bool saveToCsv(const char* path) const;
 
+  // Hash of every card's id, front and back (not the SRS columns), so saved
+  // linear progress can tell whether the deck's cards changed.
+  uint32_t contentFingerprint() const;
+
   // True when the CSV had more than MAX_CARDS_PER_DECK cards.
   bool isTruncated() const { return truncated; }
 

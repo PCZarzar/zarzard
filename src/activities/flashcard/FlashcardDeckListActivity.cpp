@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "FlashcardLinearProgress.h"
 #include "FlashcardModeSelectActivity.h"
 #include "FlashcardSettingsActivity.h"
 #include "FlashcardSrs.h"
@@ -111,7 +112,8 @@ FlashcardNextDeck FlashcardDeckListActivity::resolveNextDeck() {
   return offer;
 }
 
-void FlashcardDeckListActivity::startReview(const int deckIndex, const FlashcardReviewActivity::ReviewMode mode) {
+void FlashcardDeckListActivity::startReview(const int deckIndex, const FlashcardReviewActivity::ReviewMode mode,
+                                            const bool resumeLinear) {
   roundMode = mode;
   currentPath = decks[deckIndex].path;
   visitedPaths.push_back(currentPath);
@@ -119,7 +121,7 @@ void FlashcardDeckListActivity::startReview(const int deckIndex, const Flashcard
 
   startActivityForResult(
       std::make_unique<FlashcardReviewActivity>(renderer, mappedInput, currentPath, mode, FLASHCARD_STORE.shuffle != 0,
-                                                FlashcardNextDeckProvider{this, &resolveNextDeckThunk}),
+                                                resumeLinear, FlashcardNextDeckProvider{this, &resolveNextDeckThunk}),
       [this, mode](const ActivityResult& result) {
         today = FlashcardSrs::getToday();
         loadDeckList();
@@ -127,7 +129,11 @@ void FlashcardDeckListActivity::startReview(const int deckIndex, const Flashcard
         const int next = offeredNextPath.empty() ? -1 : findDeck(offeredNextPath);
         if (menu && menu->action == FlashcardReviewActivity::RESULT_NEXT_DECK && next >= 0) {
           selectedIndex = next;
-          startReview(next, mode);
+          // Chained linear decks pick up their own saved pass, if any.
+          FlashcardLinearProgress::Saved saved;
+          const bool resume = mode == FlashcardReviewActivity::ReviewMode::Linear &&
+                              FlashcardLinearProgress::load(decks[next].path, saved);
+          startReview(next, mode, resume);
           return;
         }
         visitedPaths.clear();  // the round ends when we are back on the list
@@ -156,18 +162,19 @@ void FlashcardDeckListActivity::loop() {
   const int deckCount = static_cast<int>(decks.size());
   if (selectedIndex < deckCount) {
     const int deckIndex = selectedIndex;
-    startActivityForResult(std::make_unique<FlashcardModeSelectActivity>(renderer, mappedInput, decks[deckIndex].name,
-                                                                         decks[deckIndex].truncated),
-                           [this, deckIndex](const ActivityResult& result) {
-                             const auto* menu = std::get_if<MenuResult>(&result.data);
-                             if (result.isCancelled || !menu || deckIndex >= static_cast<int>(decks.size())) return;
-                             const auto mode =
-                                 menu->action == static_cast<int>(FlashcardReviewActivity::ReviewMode::Linear)
-                                     ? FlashcardReviewActivity::ReviewMode::Linear
-                                     : FlashcardReviewActivity::ReviewMode::Spaced;
-                             visitedPaths.clear();
-                             startReview(deckIndex, mode);
-                           });
+    startActivityForResult(
+        std::make_unique<FlashcardModeSelectActivity>(renderer, mappedInput, decks[deckIndex].name,
+                                                      decks[deckIndex].path, decks[deckIndex].truncated),
+        [this, deckIndex](const ActivityResult& result) {
+          const auto* menu = std::get_if<MenuResult>(&result.data);
+          if (result.isCancelled || !menu || deckIndex >= static_cast<int>(decks.size())) return;
+          const bool resume = menu->action == FlashcardModeSelectActivity::ACTION_LINEAR_CONTINUE;
+          const auto mode = resume || menu->action == static_cast<int>(FlashcardReviewActivity::ReviewMode::Linear)
+                                ? FlashcardReviewActivity::ReviewMode::Linear
+                                : FlashcardReviewActivity::ReviewMode::Spaced;
+          visitedPaths.clear();
+          startReview(deckIndex, mode, resume);
+        });
   } else {
     startActivityForResult(std::make_unique<FlashcardSettingsActivity>(renderer, mappedInput),
                            [this](const ActivityResult&) {

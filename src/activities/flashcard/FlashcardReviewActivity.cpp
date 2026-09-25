@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "CrossPointSettings.h"
 #include "FlashcardDoneActivity.h"
 #include "FlashcardLayout.h"
+#include "FlashcardLinearProgress.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
 #include "MappedInputManager.h"
@@ -37,11 +39,12 @@ void drawCenteredLines(const GfxRenderer& renderer, int font, int y, const std::
 
 FlashcardReviewActivity::FlashcardReviewActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                  const std::string& deckPath, ReviewMode mode, bool shuffle,
-                                                 FlashcardNextDeckProvider nextDeck)
+                                                 bool resumeLinear, FlashcardNextDeckProvider nextDeck)
     : Activity("FlashcardReview", renderer, mappedInput),
       deckPath(deckPath),
       mode(mode),
       shuffle(shuffle),
+      resumeLinear(resumeLinear),
       nextDeckProvider(nextDeck) {}
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
@@ -52,8 +55,20 @@ void FlashcardReviewActivity::onEnter() {
   cardState = CardState::Front;
 
   if (mode == ReviewMode::Linear) {
-    // Linear never reads the clock and never writes the deck.
-    linear.start(deckLoaded ? deck.getCards().size() : 0, shuffle, esp_random());
+    // Linear never reads the clock and never writes the deck; its progress
+    // lives in a separate file (FlashcardLinearProgress).
+    bool restored = false;
+    if (deckLoaded && resumeLinear) {
+      FlashcardLinearProgress::Saved saved;
+      if (FlashcardLinearProgress::load(deckPath, saved) && saved.fingerprint == deck.contentFingerprint()) {
+        restored = linear.restore(saved.state, deck.getCards().size(), shuffle);
+      }
+      if (!restored) LOG_INF("FCRV", "Saved linear pass unusable (deck changed?), starting over: %s", deckPath.c_str());
+    }
+    if (!restored) {
+      if (deckLoaded) FlashcardLinearProgress::clear(deckPath);
+      linear.start(deckLoaded ? deck.getCards().size() : 0, shuffle, esp_random());
+    }
     if (linear.passDone()) {
       buildSummaryOptions();
       cardState = CardState::Summary;
@@ -85,9 +100,22 @@ void FlashcardReviewActivity::onEnter() {
 }
 
 void FlashcardReviewActivity::onExit() {
-  // Also runs when the device goes to sleep mid-session: keep every rating.
+  // Also runs when the device goes to sleep mid-session: keep every rating
+  // and the linear position.
   if (mode == ReviewMode::Spaced && (unsavedRatings > 0 || newQuotaDirty)) saveProgress();
+  if (mode == ReviewMode::Linear && linearDirty) saveLinearProgress();
   Activity::onExit();
+}
+
+void FlashcardReviewActivity::saveLinearProgress() {
+  if (!deckLoaded) return;
+  FlashcardLinearProgress::Saved saved;
+  saved.fingerprint = deck.contentFingerprint();
+  saved.state = linear.exportState();
+  if (FlashcardLinearProgress::save(deckPath, saved)) {
+    linearDirty = false;
+    marksSinceSave = 0;
+  }
 }
 
 // ─── Input ───────────────────────────────────────────────────────────────────
@@ -133,8 +161,7 @@ void FlashcardReviewActivity::loopLinear() {
   switch (cardState) {
     case CardState::Front:
       if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-        cardState = CardState::ConfirmLeave;
-        requestUpdate();
+        finish();  // onExit saves the position
       } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
         flipCard();
       }
@@ -149,14 +176,6 @@ void FlashcardReviewActivity::loopLinear() {
       } else if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
                  mappedInput.wasReleased(MappedInputManager::Button::Down)) {
         markLinear(LinearPile::Known);
-      }
-      break;
-    case CardState::ConfirmLeave:
-      if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-        finish();
-      } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-        cardState = CardState::Front;
-        requestUpdate();
       }
       break;
     case CardState::Summary:
@@ -185,9 +204,11 @@ void FlashcardReviewActivity::loopSummary() {
   switch (summaryOptions[summarySelected]) {
     case SummaryOption::Repeat:
       linear.startRepeatPass(esp_random());
+      linearDirty = true;
       break;
     case SummaryOption::Full:
       linear.startFullPass(esp_random());
+      linearDirty = true;
       break;
     case SummaryOption::NextDeck:
       finishWithNextDeck();
@@ -275,6 +296,9 @@ void FlashcardReviewActivity::showDone() {
 
 void FlashcardReviewActivity::markLinear(LinearPile pile) {
   linear.mark(pile);
+  linearDirty = true;
+  // Periodic save so a flat battery loses at most a few cards of progress.
+  if (++marksSinceSave >= SAVE_EVERY_RATINGS) saveLinearProgress();
   if (linear.passDone()) {
     buildSummaryOptions();
     cardState = CardState::Summary;
@@ -308,10 +332,6 @@ void FlashcardReviewActivity::render(RenderLock&&) {
   if (mode == ReviewMode::Linear) {
     if (cardState == CardState::Summary) {
       renderSummary();
-      return;
-    }
-    if (cardState == CardState::ConfirmLeave) {
-      renderConfirmLeave();
       return;
     }
     if (linear.passDone()) return;
@@ -372,23 +392,15 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     }
   }
-  renderer.displayBuffer();
+  displayWithRefreshCycle();
 }
 
-void FlashcardReviewActivity::renderConfirmLeave() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, deck.getName().c_str());
-
-  const auto area = cardArea(renderer);
-  const auto lines = FlashcardLayout::wrapText(renderer, UI_12_FONT_ID, tr(STR_FLASHCARD_LEAVE_PASS), area.width);
-  const int blockH = renderer.getLineHeight(UI_12_FONT_ID) * static_cast<int>(lines.size());
-  drawCenteredLines(renderer, UI_12_FONT_ID, area.top + std::max(0, (area.bottom - area.top - blockH) / 2), lines);
-
-  const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_CONFIRM), "", "");
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer();
+// Same cadence as the reader: a full (half) refresh every N screens, per the
+// user's Refresh Frequency setting, so e-ink ghosting does not build up.
+void FlashcardReviewActivity::displayWithRefreshCycle() {
+  const bool full = pagesUntilFullRefresh <= 1;
+  renderer.displayBuffer(full ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+  pagesUntilFullRefresh = full ? SETTINGS.getRefreshFrequency() : pagesUntilFullRefresh - 1;
 }
 
 void FlashcardReviewActivity::renderSummary() {
@@ -446,5 +458,5 @@ void FlashcardReviewActivity::renderSummary() {
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer();
+  displayWithRefreshCycle();
 }

@@ -440,6 +440,23 @@ uint16_t FlashcardDeck::spacedSessionSize(const DeckStats& stats, uint16_t newQu
   return (uint16_t)std::min<uint32_t>(total, maxReview);
 }
 
+uint32_t FlashcardDeck::contentFingerprint() const {
+  uint32_t h = 2166136261u;  // FNV-1a
+  auto mix = [&h](const void* data, size_t len) {
+    const auto* p = static_cast<const uint8_t*>(data);
+    for (size_t i = 0; i < len; ++i) {
+      h ^= p[i];
+      h *= 16777619u;
+    }
+  };
+  for (const auto& c : cards) {
+    mix(&c.id, sizeof(c.id));
+    mix(c.frontContent.data(), c.frontContent.size() + 1);  // include the NUL as a field separator
+    mix(c.backContent.data(), c.backContent.size() + 1);
+  }
+  return h;
+}
+
 bool FlashcardDeck::updateCard(size_t index, const SrsState& newState) {
   if (index >= cards.size()) {
     LOG_ERR(TAG, "updateCard: index %u out of range (%u)", (unsigned)index, (unsigned)cards.size());

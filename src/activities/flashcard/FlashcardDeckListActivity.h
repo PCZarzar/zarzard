@@ -34,7 +34,7 @@ class FlashcardDeckListActivity final : public Activity {
 
   void loadDeckList();
   int findDeck(const std::string& path) const;
-  void startReview(int deckIndex, FlashcardReviewActivity::ReviewMode mode);
+  void startReview(int deckIndex, FlashcardReviewActivity::ReviewMode mode, bool resumeLinear);
   FlashcardNextDeck resolveNextDeck();
   static FlashcardNextDeck resolveNextDeckThunk(void* self);
 

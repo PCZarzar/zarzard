@@ -5,13 +5,55 @@
 #include <random>
 #include <vector>
 
-// RAM-only state of a Linear review: the current pass queue and the three
-// piles the user sorts cards into. Never touches SRS state or the CSV.
+// State of a Linear review: the current pass queue and the three piles the
+// user sorts cards into. Never touches SRS state or the CSV; it can be
+// exported and restored (FlashcardLinearProgress keeps it on the SD card).
 // Kept free of device dependencies so it can be tested on the host.
 enum class LinearPile : uint8_t { Missed, Unsure, Known };
 
 class FlashcardLinearSession {
  public:
+  // Everything needed to continue a pass later.
+  struct State {
+    uint16_t pass = 0;
+    size_t position = 0;  // cards already sorted in this pass
+    std::vector<size_t> queue;
+    std::vector<size_t> missed;
+    std::vector<size_t> unsure;
+    std::vector<size_t> known;
+  };
+
+  State exportState() const { return State{passNumber, position, queue, missed, unsure, known}; }
+
+  // Restores a saved pass for a deck with deckSize cards. Rejects anything
+  // inconsistent (deck changed, corrupted file): indices out of range or
+  // repeated, position past the queue, piles that are not exactly the cards
+  // already sorted. On failure the session is left untouched.
+  bool restore(const State& st, size_t deckSize, bool shuffleEachPass) {
+    if (st.pass == 0 || st.position > st.queue.size() || st.queue.size() > deckSize) return false;
+    std::vector<size_t> q = st.queue;
+    std::sort(q.begin(), q.end());
+    if (std::adjacent_find(q.begin(), q.end()) != q.end()) return false;
+    if (!q.empty() && q.back() >= deckSize) return false;
+    std::vector<size_t> sorted(st.queue.begin(), st.queue.begin() + static_cast<std::ptrdiff_t>(st.position));
+    std::vector<size_t> piles = st.missed;
+    piles.insert(piles.end(), st.unsure.begin(), st.unsure.end());
+    piles.insert(piles.end(), st.known.begin(), st.known.end());
+    std::sort(sorted.begin(), sorted.end());
+    std::sort(piles.begin(), piles.end());
+    if (sorted != piles) return false;
+
+    shuffle = shuffleEachPass;
+    this->deckSize = deckSize;
+    passNumber = st.pass;
+    position = st.position;
+    queue = st.queue;
+    missed = st.missed;
+    unsure = st.unsure;
+    known = st.known;
+    return true;
+  }
+
   // First pass over every card of a deck with deckSize cards.
   void start(size_t deckSize, bool shuffleEachPass, uint32_t seed) {
     shuffle = shuffleEachPass;

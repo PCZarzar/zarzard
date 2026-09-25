@@ -347,10 +347,76 @@ static void testSaveAndRecovery(const std::string& root) {
   fs::remove(root + "/flashcard/lpic.csv.tmp");
 }
 
+static void testLinearResume() {
+  // Pass 1 of 45 cards, shuffled, stopped after 29 marks (card 30 on screen)
+  FlashcardLinearSession s;
+  s.start(45, true, 77);
+  for (int i = 0; i < 29; ++i)
+    s.mark(i % 3 == 0 ? LinearPile::Missed : i % 3 == 1 ? LinearPile::Unsure : LinearPile::Known);
+  const auto st = s.exportState();
+  CHECK_EQ(s.shownPosition(), (size_t)30);
+
+  FlashcardLinearSession r;
+  CHECK_EQ(r.restore(st, 45, true), true);
+  CHECK_EQ(r.pass(), (uint16_t)1);
+  CHECK_EQ(r.shownPosition(), (size_t)30);
+  CHECK_EQ(r.current(), s.current());      // same card on screen
+  CHECK_EQ(r.passQueue(), s.passQueue());  // same shuffled order
+  CHECK_EQ(r.missedCount() + r.unsureCount() + r.knownCount(), (size_t)29);
+  for (int i = 0; i < 16; ++i) r.mark(LinearPile::Known);
+  CHECK_EQ(r.passDone(), true);
+  CHECK_EQ(r.missedCount(), s.missedCount());
+
+  // Rejected: deck shrank, index out of range, duplicate, position past end, piles inconsistent
+  FlashcardLinearSession x;
+  CHECK_EQ(x.restore(st, 40, true), false);
+  auto bad = st;
+  bad.queue[0] = 99;
+  CHECK_EQ(x.restore(bad, 45, true), false);
+  bad = st;
+  bad.queue[1] = bad.queue[0];
+  CHECK_EQ(x.restore(bad, 45, true), false);
+  bad = st;
+  bad.position = 46;
+  CHECK_EQ(x.restore(bad, 45, true), false);
+  bad = st;
+  bad.known.push_back(bad.queue[40]);  // a card not yet shown cannot be in a pile
+  CHECK_EQ(x.restore(bad, 45, true), false);
+  bad = st;
+  bad.pass = 0;
+  CHECK_EQ(x.restore(bad, 45, true), false);
+  CHECK_EQ(x.pass(), (uint16_t)0);  // failed restores leave the session untouched
+
+  // Finished pass (summary) restores as done
+  FlashcardLinearSession done;
+  done.start(7, false, 1);
+  for (int i = 0; i < 7; ++i) done.mark(LinearPile::Missed);
+  FlashcardLinearSession d2;
+  CHECK_EQ(d2.restore(done.exportState(), 7, false), true);
+  CHECK_EQ(d2.passDone(), true);
+  CHECK_EQ(d2.canRepeat(), true);
+}
+
+static void testFingerprint(const std::string& root) {
+  FlashcardDeck a, b;
+  CHECK_EQ(a.loadFromCsv("/lpic_test.csv"), true);
+  CHECK_EQ(b.loadFromCsv("/lpic_test.csv"), true);
+  CHECK_EQ(a.contentFingerprint(), b.contentFingerprint());
+  // SRS changes (Spaced reviews in between) keep the fingerprint
+  b.updateCard(0, FlashcardSrs::review(b.getCards()[0].srs, SrsRating::Good, 9000));
+  CHECK_EQ(a.contentFingerprint(), b.contentFingerprint());
+  // Editing a card's text changes it
+  b.getCards()[3].backContent += "!";
+  CHECK_EQ(a.contentFingerprint() == b.contentFingerprint(), false);
+  (void)root;
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
   testLiteralSlash();
+  testLinearResume();
+  testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();
   testDailyNewLimit();

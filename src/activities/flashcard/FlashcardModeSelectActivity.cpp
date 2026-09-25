@@ -3,8 +3,12 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+#include <cstdio>
+
 #include "FlashcardClockSync.h"
 #include "FlashcardClockSyncActivity.h"
+#include "FlashcardLinearProgress.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
 #include "MappedInputManager.h"
@@ -25,13 +29,48 @@ void FlashcardModeSelectActivity::refreshClockState() { clockState = FlashcardCl
 void FlashcardModeSelectActivity::onEnter() {
   Activity::onEnter();
   refreshClockState();
+  FlashcardLinearProgress::Saved saved;
+  hasSavedPass = FlashcardLinearProgress::load(deckPath, saved);
+  if (hasSavedPass) {
+    snprintf(savedPassLabel, sizeof(savedPassLabel), "%s %u \xC2\xB7 %u/%u", tr(STR_FLASHCARD_PASS),
+             static_cast<unsigned>(saved.state.pass),
+             static_cast<unsigned>(std::min(saved.state.position + 1, saved.state.queue.size())),
+             static_cast<unsigned>(saved.state.queue.size()));
+  }
   selectedIndex = FLASHCARD_STORE.lastMode == 1 ? ROW_LINEAR : ROW_SPACED;
   if (selectedIndex == ROW_SPACED && deckTooLarge) selectedIndex = ROW_LINEAR;
   if (selectedIndex == ROW_SPACED && clockState == FlashcardClock::State::Unset) selectedIndex = ROW_SYNC;
   requestUpdate();
 }
 
+void FlashcardModeSelectActivity::finishWith(const int action) {
+  FLASHCARD_STORE.lastMode = static_cast<uint8_t>(action == ROW_SPACED ? ROW_SPACED : ROW_LINEAR);
+  FLASHCARD_STORE.saveToFile();
+  MenuResult r;
+  r.action = action;
+  setResult(std::move(r));
+  finish();
+}
+
 void FlashcardModeSelectActivity::loop() {
+  if (choosingLinearStart) {
+    buttonNavigator.onNext([this] {
+      linearChoice = ButtonNavigator::nextIndex(linearChoice, 2);
+      requestUpdate();
+    });
+    buttonNavigator.onPrevious([this] {
+      linearChoice = ButtonNavigator::previousIndex(linearChoice, 2);
+      requestUpdate();
+    });
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      choosingLinearStart = false;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      finishWith(linearChoice == 0 ? ACTION_LINEAR_CONTINUE : ROW_LINEAR);
+    }
+    return;
+  }
+
   buttonNavigator.onNext([this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, ROW_COUNT);
     requestUpdate();
@@ -74,16 +113,19 @@ void FlashcardModeSelectActivity::loop() {
         return;
       }
       break;
+    case ROW_LINEAR:
+      if (hasSavedPass) {
+        choosingLinearStart = true;
+        linearChoice = 0;
+        requestUpdate();
+        return;
+      }
+      break;
     default:
       break;
   }
 
-  FLASHCARD_STORE.lastMode = static_cast<uint8_t>(selectedIndex);
-  FLASHCARD_STORE.saveToFile();
-  MenuResult r;
-  r.action = selectedIndex;  // ROW_SPACED / ROW_LINEAR match ReviewMode
-  setResult(std::move(r));
-  finish();
+  finishWith(selectedIndex);  // ROW_SPACED / ROW_LINEAR match ReviewMode
 }
 
 void FlashcardModeSelectActivity::render(RenderLock&&) {
@@ -103,20 +145,36 @@ void FlashcardModeSelectActivity::render(RenderLock&&) {
     spacedSub = tr(STR_FLASHCARD_SYNC_RECOMMENDED);
   }
 
+  const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int height = pageHeight - top - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+
+  if (choosingLinearStart) {
+    FlashcardUi::Row choice[2];
+    choice[0].title = tr(STR_FLASHCARD_CONTINUE);
+    choice[0].subtitle = savedPassLabel;
+    choice[1].title = tr(STR_FLASHCARD_RESTART);
+    FlashcardUi::drawRows(renderer, Rect{0, top, pageWidth, height}, choice, 2, linearChoice);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  char linearSub[64] = "";
+  if (hasSavedPass) snprintf(linearSub, sizeof(linearSub), "%s %s", tr(STR_FLASHCARD_SAVED), savedPassLabel);
+
   FlashcardUi::Row rows[ROW_COUNT];
   rows[ROW_SPACED].title = tr(STR_FLASHCARD_SPACED);
   rows[ROW_SPACED].subtitle = spacedSub;
   rows[ROW_LINEAR].title = tr(STR_FLASHCARD_LINEAR);
+  rows[ROW_LINEAR].subtitle = hasSavedPass ? linearSub : nullptr;
   rows[ROW_SHUFFLE].title = tr(STR_FLASHCARD_SHUFFLE);
   rows[ROW_SHUFFLE].value = FLASHCARD_STORE.shuffle ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
   rows[ROW_SYNC].title = tr(STR_FLASHCARD_SYNC_DATE);
   rows[ROW_SYNC].subtitle = tr(STR_FLASHCARD_SYNC_HINT);
 
-  const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int height = pageHeight - top - metrics.buttonHintsHeight - metrics.verticalSpacing;
   FlashcardUi::drawRows(renderer, Rect{0, top, pageWidth, height}, rows, ROW_COUNT, selectedIndex);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
