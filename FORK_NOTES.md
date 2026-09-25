@@ -116,9 +116,11 @@ Test deck `test/decks/lpic_test.csv`:
   wrong cards. Chained "Next deck" resumes that deck's saved pass if it has one.
   Waking from sleep still opens Home (CrossPoint behaviour); reopen the deck →
   Continue.
-- **E-ink ghosting.** Card screens used only fast refresh, so remnants built up and
-  showed through the sleep screen. They now follow the reader's cadence: the first
-  screen of a session and every *Refresh Frequency* screens do a half refresh.
+- **E-ink refresh.** Card screens use CrossPoint's fast refresh only (no periodic
+  flashing). A periodic half refresh was tried and removed at the user's request:
+  in flashcard use it flashed every ~7 cards and left the unchanged header a shade
+  lighter. To clear ghosting on demand use CrossPoint's *Short Power Button →
+  Refresh*.
 
 ## Final build
 

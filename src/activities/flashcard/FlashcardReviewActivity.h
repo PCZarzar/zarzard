@@ -56,7 +56,6 @@ class FlashcardReviewActivity final : public Activity {
   void buildSummaryOptions();
   void finishWithNextDeck();
   void saveLinearProgress();
-  void displayWithRefreshCycle();
   void renderCard(const FlashcardCard& card);
   void renderSummary();
 
@@ -79,7 +78,6 @@ class FlashcardReviewActivity final : public Activity {
   std::array<uint16_t, 4> ratingCounts{};  // indexed by SrsRating
 
   CardState cardState = CardState::Front;
-  int pagesUntilFullRefresh = 1;  // first screen of the session clears e-ink ghosting
 
   // Linear mode only — RAM state, nothing is persisted.
   FlashcardLinearSession linear;

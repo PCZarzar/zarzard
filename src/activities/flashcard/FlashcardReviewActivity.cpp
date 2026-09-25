@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cstdio>
 
-#include "CrossPointSettings.h"
 #include "FlashcardDoneActivity.h"
 #include "FlashcardLayout.h"
 #include "FlashcardLinearProgress.h"
@@ -392,15 +391,7 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     }
   }
-  displayWithRefreshCycle();
-}
-
-// Same cadence as the reader: a full (half) refresh every N screens, per the
-// user's Refresh Frequency setting, so e-ink ghosting does not build up.
-void FlashcardReviewActivity::displayWithRefreshCycle() {
-  const bool full = pagesUntilFullRefresh <= 1;
-  renderer.displayBuffer(full ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
-  pagesUntilFullRefresh = full ? SETTINGS.getRefreshFrequency() : pagesUntilFullRefresh - 1;
+  renderer.displayBuffer();
 }
 
 void FlashcardReviewActivity::renderSummary() {
@@ -458,5 +449,5 @@ void FlashcardReviewActivity::renderSummary() {
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  displayWithRefreshCycle();
+  renderer.displayBuffer();
 }
