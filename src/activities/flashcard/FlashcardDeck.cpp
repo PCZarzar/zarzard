@@ -478,12 +478,31 @@ static bool hasCsvSuffix(const std::string& fname) {
           tail == ".cSV" || tail == ".CsV");
 }
 
-std::vector<std::string> FlashcardDeck::listDecks() {
+std::vector<std::string> FlashcardDeck::listFolders() {
+  std::vector<std::string> result;
+  HalFile dir = Storage.open(FLASHCARD_DIR);
+  if (!dir) return result;
+  result.reserve(8);
+  dir.rewindDirectory();
+  while (true) {
+    HalFile entry = dir.openNextFile();
+    if (!entry) break;
+    if (!entry.isDirectory()) continue;
+    char nameBuf[128];
+    entry.getName(nameBuf, sizeof(nameBuf));
+    if (nameBuf[0] == '\0' || nameBuf[0] == '.') continue;
+    result.emplace_back(nameBuf);
+  }
+  std::sort(result.begin(), result.end());
+  return result;
+}
+
+std::vector<std::string> FlashcardDeck::listDecks(const std::string& dirPath) {
   std::vector<std::string> result;
 
-  HalFile dir = Storage.open(FLASHCARD_DIR);
+  HalFile dir = Storage.open(dirPath.c_str());
   if (!dir) {
-    LOG_DBG(TAG, "listDecks: directory not found: %s", FLASHCARD_DIR);
+    LOG_DBG(TAG, "listDecks: directory not found: %s", dirPath.c_str());
     return result;
   }
 
@@ -497,8 +516,9 @@ std::vector<std::string> FlashcardDeck::listDecks() {
       char nameBuf[128];
       entry.getName(nameBuf, sizeof(nameBuf));
       std::string fname(nameBuf);
+      if (fname.empty() || fname[0] == '.') continue;  // hidden, e.g. macOS "._deck.csv"
       if (hasCsvSuffix(fname)) {
-        result.push_back(std::string(FLASHCARD_DIR) + "/" + fname);
+        result.push_back(dirPath + "/" + fname);
       } else if (fname.size() > 4 && fname.compare(fname.size() - 4, 4, ".tmp") == 0 &&
                  hasCsvSuffix(fname.substr(0, fname.size() - 4))) {
         orphanTmps.push_back(fname.substr(0, fname.size() - 4));
@@ -510,7 +530,7 @@ std::vector<std::string> FlashcardDeck::listDecks() {
   // saveToCsv() removes the old CSV before renaming the .tmp into place; a
   // power loss in between leaves only the .tmp. Restore it.
   for (const auto& csvName : orphanTmps) {
-    const std::string csvPath = std::string(FLASHCARD_DIR) + "/" + csvName;
+    const std::string csvPath = dirPath + "/" + csvName;
     if (std::find(result.begin(), result.end(), csvPath) != result.end()) continue;
     const std::string tmpPath = csvPath + ".tmp";
     if (Storage.rename(tmpPath.c_str(), csvPath.c_str())) {

@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "FlashcardClockSync.h"
+#include "FlashcardClockSyncActivity.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
 #include "MappedInputManager.h"
@@ -17,7 +19,9 @@ namespace {
 constexpr int ROW_NEW_PER_DAY = 0;
 constexpr int ROW_MAX_REVIEW = 1;
 constexpr int ROW_UTC_OFFSET = 2;
-constexpr int ROW_COUNT = 3;
+constexpr int ROW_SHUFFLE = 3;
+constexpr int ROW_SYNC = 4;
+constexpr int ROW_COUNT = 5;
 
 constexpr int NEW_PER_DAY_STEP = 5;
 constexpr int MAX_REVIEW_STEP = 25;
@@ -71,7 +75,20 @@ void FlashcardSettingsActivity::loop() {
       requestUpdate();
     });
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      editing = true;
+      if (selectedIndex == ROW_SHUFFLE) {
+        FLASHCARD_STORE.shuffle = FLASHCARD_STORE.shuffle ? 0 : 1;
+        dirty = true;
+      } else if (selectedIndex == ROW_SYNC) {
+        // Restarts the device on exit when it had to turn WiFi on (like
+        // CrossPoint's clock sync), so save pending edits first.
+        if (dirty) FLASHCARD_STORE.saveToFile();
+        dirty = false;
+        startActivityForResult(std::make_unique<FlashcardClockSyncActivity>(renderer, mappedInput),
+                               [this](const ActivityResult&) { requestUpdate(); });
+        return;
+      } else {
+        editing = true;
+      }
       requestUpdate();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       finish();
@@ -115,7 +132,14 @@ void FlashcardSettingsActivity::render(RenderLock&&) {
   rows[ROW_NEW_PER_DAY].title = tr(STR_FLASHCARD_NEW_PER_DAY);
   rows[ROW_MAX_REVIEW].title = tr(STR_FLASHCARD_MAX_REVIEW);
   rows[ROW_UTC_OFFSET].title = tr(STR_FLASHCARD_UTC_OFFSET);
-  for (int i = 0; i < ROW_COUNT; ++i) rows[i].value = values[i];
+  for (int i = ROW_NEW_PER_DAY; i <= ROW_UTC_OFFSET; ++i) rows[i].value = values[i];
+  rows[ROW_SHUFFLE].title = tr(STR_FLASHCARD_SHUFFLE);
+  rows[ROW_SHUFFLE].value = store.shuffle ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+  rows[ROW_SYNC].title = tr(STR_FLASHCARD_SYNC_DATE);
+  const auto clock = FlashcardClockSync::state();
+  rows[ROW_SYNC].subtitle = clock == FlashcardClock::State::Unset   ? tr(STR_FLASHCARD_CLOCK_NOT_SET)
+                            : clock == FlashcardClock::State::Stale ? tr(STR_FLASHCARD_SYNC_RECOMMENDED)
+                                                                    : tr(STR_FLASHCARD_SYNC_HINT);
 
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int height = pageHeight - top - metrics.buttonHintsHeight - metrics.verticalSpacing;

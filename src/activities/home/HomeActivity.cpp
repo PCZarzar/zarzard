@@ -19,7 +19,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
-#include "activities/flashcard/FlashcardDeckListActivity.h"
+#include "activities/flashcard/FlashcardHomeActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -364,5 +364,5 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onFlashcardsOpen() {
-  activityManager.replaceActivity(std::make_unique<FlashcardDeckListActivity>(renderer, mappedInput));
+  activityManager.replaceActivity(std::make_unique<FlashcardHomeActivity>(renderer, mappedInput));
 }

@@ -121,6 +121,19 @@ Test deck `test/decks/lpic_test.csv`:
   in flashcard use it flashed every ~7 cards and left the unchanged header a shade
   lighter. To clear ghosting on demand use CrossPoint's *Short Power Button →
   Refresh*.
+- **Folders and two entry points (user request, 2026-09-26).** Flashcards opens on
+  *Spaced review* / *Linear review* / *Settings* (the per-deck mode screen is gone).
+  Decks may sit in `/flashcard/*.csv` or one folder level `/flashcard/<folder>/*.csv`
+  (folders are created from a PC or CrossPoint's WiFi file transfer; hidden files
+  and folders such as macOS `._x.csv` are ignored).
+  *Spaced* is one flat list of every deck, ordered by `FlashcardCatalog::sortForSpaced`:
+  decks with something to review first (most due, then most new, then name), then an
+  *Up to date* section. *Review all* chains through pending decks, always taking the
+  most-due unvisited one. Date sync lives on that list (when the date is unknown or
+  stale) and in Settings. *Linear* browses folders → decks; a deck with a saved pass
+  offers Continue / Restart; *Next deck* stays inside the folder. Shuffle moved to
+  Settings. Moving a deck to another folder changes its path, so its saved linear
+  pass is not found any more (the CSV itself is unaffected).
 
 ## Final build
 

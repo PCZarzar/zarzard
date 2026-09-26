@@ -84,8 +84,12 @@ class FlashcardDeck {
   std::vector<FlashcardCard>& getCards() { return cards; }
   const std::vector<FlashcardCard>& getCards() const { return cards; }
 
-  // Return full paths of all .csv files in FLASHCARD_DIR.
-  static std::vector<std::string> listDecks();
+  // Full paths of the .csv files directly inside dir (default FLASHCARD_DIR),
+  // sorted. Restores decks orphaned as .csv.tmp by an interrupted save.
+  static std::vector<std::string> listDecks(const std::string& dir = FLASHCARD_DIR);
+
+  // Names of the folders directly inside FLASHCARD_DIR (hidden ones skipped), sorted.
+  static std::vector<std::string> listFolders();
 
  private:
   bool truncated = false;

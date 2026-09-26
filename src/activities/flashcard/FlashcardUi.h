@@ -12,6 +12,7 @@ struct Row {
   const char* title = "";
   const char* subtitle = nullptr;  // optional second line, small font
   const char* value = nullptr;     // optional right-aligned value
+  bool header = false;             // section label: not selectable, never highlighted
 };
 
 // Draws rows inside rect, scrolling so that `selected` is visible; the

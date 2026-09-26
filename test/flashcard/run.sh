@@ -11,6 +11,7 @@ cp "$REPO/test/decks/lpic_test.csv" "$OUT/"
 CXX="g++ -std=gnu++2a -Uunix -O1 -Wall -Wextra -I$HERE/stubs -I$FC -I$REPO/lib/Memory"
 
 $CXX "$HERE/test_flashcard.cpp" "$FC/FlashcardDeck.cpp" "$FC/FlashcardSrs.cpp" "$FC/FlashcardClock.cpp" \
+  "$FC/FlashcardCatalog.cpp" \
   -o "$OUT/test_flashcard"
 TZ=UTC "$OUT/test_flashcard" "$OUT"
 

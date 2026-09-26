@@ -28,9 +28,17 @@ void drawRows(GfxRenderer& renderer, const Rect& rect, const Row* rows, const in
   int y = rect.y;
   for (int i = first; i < count && i < first + visible; ++i) {
     const Row& row = rows[i];
-    const bool inv = (i == selected);
     const int x = rect.x + sidePad;
     const int w = rect.width - sidePad * 2;
+    if (row.header) {
+      // Section label, bottom-aligned in its slot with a rule under it.
+      const int textY = y + rowH - rowPad - titleH;
+      renderer.drawText(UI_12_FONT_ID, x + 10, textY, row.title, true, EpdFontFamily::BOLD);
+      renderer.drawLine(x, y + rowH - 4, x + w, y + rowH - 4, true);
+      y += rowH;
+      continue;
+    }
+    const bool inv = (i == selected);
     if (inv) renderer.fillRect(x, y, w, rowH, true);
 
     int valueW = 0;

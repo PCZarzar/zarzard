@@ -24,7 +24,6 @@ class FlashcardStore : public PersistableStore<FlashcardStore> {
 
   uint8_t newPerDay = 10;           // new cards per day, across all decks
   uint8_t maxReviewPerDay = 250;    // cap per deck session
-  uint8_t lastMode = 0;             // last review mode picked: 0 = spaced, 1 = linear
   uint8_t shuffle = 1;              // linear review: reshuffle each pass
   uint16_t newTodayCount = 0;       // new cards first rated on newTodayDate
   uint32_t newTodayDate = 0;        // day of that counter (FlashcardSrs::getToday format)

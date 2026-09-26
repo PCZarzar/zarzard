@@ -4,8 +4,9 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
-// New cards per day, max reviews per deck session, and the time zone that
-// sets when the flashcard day changes. Saved on exit.
+// New cards per day, max reviews per deck session, the time zone that sets
+// when the flashcard day changes, the Linear shuffle toggle and the date sync
+// Spaced review needs (the X4 has no RTC). Saved on exit.
 class FlashcardSettingsActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;

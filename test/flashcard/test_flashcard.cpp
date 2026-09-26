@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "FlashcardCatalog.h"
 #include "FlashcardClock.h"
 #include "FlashcardDeck.h"
 #include "FlashcardLinearSession.h"
@@ -411,11 +412,71 @@ static void testFingerprint(const std::string& root) {
   (void)root;
 }
 
+static void testCatalog(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc + "/LPIC 101");
+  fs::create_directories(fc + "/LPIC 102");
+  fs::create_directories(fc + "/.hidden");
+  auto put = [&](const std::string& rel, int cards, bool dueAll) {
+    std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+    for (int i = 1; i <= cards; ++i) csv += std::to_string(i) + ",f,b," + (dueAll ? "01/01/2026,3,250" : ",,") + "\n";
+    std::ofstream(fc + "/" + rel, std::ios::binary) << csv;
+  };
+  put("avulso.csv", 3, false);
+  put("LPIC 101/103.1 comandos.csv", 5, true);
+  put("LPIC 101/104.2 filesystems.csv", 2, true);
+  put("LPIC 102/105 shell.csv", 4, false);
+  put(".hidden/x.csv", 1, true);                                   // hidden folder: ignored
+  std::ofstream(fc + "/LPIC 101/._103.1 comandos.csv") << "junk";  // macOS resource fork: ignored
+  std::ofstream(fc + "/notas.txt") << "x";                         // not a deck
+
+  CHECK_EQ(FlashcardDeck::listFolders(), (std::vector<std::string>{"LPIC 101", "LPIC 102"}));
+  CHECK_EQ(FlashcardCatalog::decksIn(""), (std::vector<std::string>{"/flashcard/avulso.csv"}));
+  CHECK_EQ(FlashcardCatalog::decksIn("LPIC 101"),
+           (std::vector<std::string>{"/flashcard/LPIC 101/103.1 comandos.csv",
+                                     "/flashcard/LPIC 101/104.2 filesystems.csv"}));
+  const auto all = FlashcardCatalog::allDecks();
+  CHECK_EQ(all.size(), (size_t)4);
+
+  const uint32_t today = FlashcardSrs::parseDateStr("24/09/2026");
+  std::vector<FlashcardCatalog::Entry> entries;
+  for (const auto& p : all) {
+    FlashcardCatalog::Entry e;
+    CHECK_EQ(FlashcardCatalog::load(p, today, e), true);
+    entries.push_back(e);
+  }
+  CHECK_EQ(entries[0].folder, std::string(""));
+  CHECK_EQ(entries[1].folder, std::string("LPIC 101"));
+  CHECK_EQ(entries[1].name, std::string("103.1 comandos"));
+  CHECK_EQ(entries[1].stats.dueCards, (uint16_t)5);
+
+  // With new-card quota: most due first (5, 2), then new-only decks by most new (4, 3)
+  auto sorted = entries;
+  FlashcardCatalog::sortForSpaced(sorted, 10);
+  std::vector<std::string> names;
+  for (const auto& e : sorted) names.push_back(e.name);
+  CHECK_EQ(names, (std::vector<std::string>{"103.1 comandos", "104.2 filesystems", "105 shell", "avulso"}));
+  // Quota used up: new-only decks are up to date and go below, by name
+  sorted = entries;
+  FlashcardCatalog::sortForSpaced(sorted, 0);
+  CHECK_EQ(FlashcardCatalog::isPending(sorted[2], 0), false);
+  CHECK_EQ(sorted[2].name, std::string("105 shell"));
+  CHECK_EQ(sorted[3].name, std::string("avulso"));
+  // Decks over the card limit are never pending
+  FlashcardCatalog::Entry big = entries[1];
+  big.truncated = true;
+  CHECK_EQ(FlashcardCatalog::isPending(big, 10), false);
+  fs::remove_all(fc);
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
   testLiteralSlash();
   testLinearResume();
+  testCatalog(Storage.root);
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();

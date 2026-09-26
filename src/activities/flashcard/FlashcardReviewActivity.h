@@ -26,8 +26,6 @@ struct FlashcardNextDeckProvider {
 
 class FlashcardReviewActivity final : public Activity {
  public:
-  // Underlying values match FlashcardModeSelectActivity rows and
-  // FlashcardStore::lastMode.
   enum class ReviewMode : uint8_t { Spaced = 0, Linear = 1 };
 
   // MenuResult::action set when the user asks to open the next deck.
