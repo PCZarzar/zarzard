@@ -134,6 +134,14 @@ Test deck `test/decks/lpic_test.csv`:
   offers Continue / Restart; *Next deck* stays inside the folder. Shuffle moved to
   Settings. Moving a deck to another folder changes its path, so its saved linear
   pass is not found any more (the CSV itself is unaffected).
+- **Whole folder, shuffled (Linear).** Inside a folder the first row studies every
+  card of its decks as one pass, always fully shuffled (each new pass reshuffles,
+  whatever the Shuffle setting). The decks are merged in RAM by
+  `FlashcardDeck::loadMerged` (read-only: `saveToCsv` refuses it; the CSVs are never
+  touched), capped at 500 cards like a single deck — beyond that the first 500 in
+  file order are used and the row shows "N cards (of M)". The folder pass has its
+  own saved progress (Continue / Restart), keyed by the folder path and a
+  fingerprint of the merged cards. No "Next deck" after a whole-folder pass.
 
 ## Final build
 

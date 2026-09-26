@@ -471,12 +471,68 @@ static void testCatalog(const std::string& root) {
   fs::remove_all(fc);
 }
 
+static void testWholeFolder(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string dir = root + "/flashcard/LPIC 101";
+  fs::create_directories(dir);
+  auto put = [&](const std::string& name, int from, int count) {
+    std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+    for (int i = from; i < from + count; ++i) csv += std::to_string(i) + ",f" + std::to_string(i) + ",b,,,\n";
+    std::ofstream(dir + "/" + name, std::ios::binary) << csv;
+    return csv;
+  };
+  const std::string a = put("a.csv", 1, 3);
+  const std::string b = put("b.csv", 100, 4);
+  const auto paths = FlashcardDeck::listDecks("/flashcard/LPIC 101");
+
+  FlashcardDeck m;
+  CHECK_EQ(m.loadMerged(paths, "LPIC 101", "/flashcard/LPIC 101/"), true);
+  CHECK_EQ(m.getCards().size(), (size_t)7);
+  CHECK_EQ(m.getName(), std::string("LPIC 101"));
+  CHECK_EQ(m.isTruncated(), false);
+  CHECK_EQ(m.getCards()[0].frontContent, std::string("f1"));
+  CHECK_EQ(m.getCards()[6].frontContent, std::string("f103"));
+  CHECK_EQ(m.saveToCsv("/flashcard/LPIC 101/a.csv"), false);  // merged decks are read-only
+  CHECK_EQ(slurp(dir + "/a.csv"), a);
+  CHECK_EQ(slurp(dir + "/b.csv"), b);
+  // Stable fingerprint across loads (Continue works), changes if a deck changes
+  FlashcardDeck m2;
+  m2.loadMerged(paths, "LPIC 101", "/flashcard/LPIC 101/");
+  CHECK_EQ(m.contentFingerprint(), m2.contentFingerprint());
+
+  // One pass over every card of the folder, shuffled
+  FlashcardLinearSession s;
+  s.start(m.getCards().size(), true, 4242);
+  auto q = s.passQueue();
+  std::sort(q.begin(), q.end());
+  CHECK_EQ(q, iota(7));
+
+  // Over the card limit: exactly MAX cards, flagged truncated
+  put("c.csv", 1000, 498);
+  FlashcardDeck big;
+  CHECK_EQ(big.loadMerged(FlashcardDeck::listDecks("/flashcard/LPIC 101"), "LPIC 101", "/flashcard/LPIC 101/"), true);
+  CHECK_EQ(big.getCards().size(), MAX_CARDS_PER_DECK);
+  CHECK_EQ(big.isTruncated(), true);
+  // Exactly at the limit is not truncated
+  fs::remove(dir + "/c.csv");
+  put("c.csv", 1000, 493);
+  FlashcardDeck exact;
+  exact.loadMerged(FlashcardDeck::listDecks("/flashcard/LPIC 101"), "LPIC 101", "/flashcard/LPIC 101/");
+  CHECK_EQ(exact.getCards().size(), MAX_CARDS_PER_DECK);
+  CHECK_EQ(exact.isTruncated(), false);
+  // No readable deck: fails
+  FlashcardDeck none;
+  CHECK_EQ(none.loadMerged({"/flashcard/missing.csv"}, "x", "/flashcard/x/"), false);
+  fs::remove_all(root + "/flashcard/LPIC 101");
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
   testLiteralSlash();
   testLinearResume();
   testCatalog(Storage.root);
+  testWholeFolder(Storage.root);
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();

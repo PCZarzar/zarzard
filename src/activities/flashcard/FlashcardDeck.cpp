@@ -173,6 +173,7 @@ void FlashcardDeck::writeCsvField(std::string& out, const std::string& field) {
 bool FlashcardDeck::loadFromCsv(const char* path) {
   cards.clear();
   truncated = false;
+  merged = false;
   filePath = path;
 
   // Use size-aware read — SDCardManager::readFile caps at 50KB and would
@@ -274,7 +275,38 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
   return true;
 }
 
+bool FlashcardDeck::loadMerged(const std::vector<std::string>& paths, const std::string& displayName,
+                               const std::string& mergedPath) {
+  cards.clear();
+  truncated = false;
+  bool anyLoaded = false;
+  for (const auto& path : paths) {
+    // One source deck in RAM at a time next to the merged cards.
+    FlashcardDeck part;
+    if (!part.loadFromCsv(path.c_str())) continue;
+    anyLoaded = true;
+    auto& src = part.getCards();
+    for (auto& card : src) {
+      if (cards.size() >= MAX_CARDS_PER_DECK) {
+        truncated = true;
+        break;
+      }
+      cards.push_back(std::move(card));
+    }
+    if (part.isTruncated()) truncated = true;  // that deck's own tail was already dropped
+    if (truncated) break;
+  }
+  merged = true;
+  name = displayName;
+  filePath = mergedPath;
+  return anyLoaded;
+}
+
 bool FlashcardDeck::saveToCsv(const char* path) const {
+  if (merged) {
+    LOG_ERR(TAG, "Not saving a merged deck: %s", path);
+    return false;
+  }
   if (truncated) {
     LOG_ERR(TAG, "Not saving truncated deck (> %u cards): %s", (unsigned)MAX_CARDS_PER_DECK, path);
     return false;

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "FlashcardCatalog.h"
 #include "FlashcardLinearProgress.h"
@@ -55,12 +56,37 @@ void FlashcardLinearBrowserActivity::reload() {
     }
     items.push_back(std::move(it));
   }
-  if (selectedIndex >= static_cast<int>(items.size())) selectedIndex = items.empty() ? 0 : items.size() - 1;
+  if (!folder.empty()) {
+    Item whole;
+    whole.isWholeFolder = true;
+    whole.name = folder;
+    whole.path = std::string(FLASHCARD_DIR) + "/" + folder + "/";
+    whole.loaded = false;
+    for (const auto& it : items) {
+      if (it.isFolder || !it.loaded) continue;
+      whole.loaded = true;
+      whole.folderCards += it.cards;
+    }
+    whole.cards = static_cast<uint16_t>(std::min<uint32_t>(whole.folderCards, MAX_CARDS_PER_DECK));
+    FlashcardLinearProgress::Saved saved;
+    if (whole.loaded && FlashcardLinearProgress::load(whole.path, saved)) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "%s %u \xC2\xB7 %u/%u", tr(STR_FLASHCARD_PASS),
+               static_cast<unsigned>(saved.state.pass),
+               static_cast<unsigned>(std::min(saved.state.position + 1, saved.state.queue.size())),
+               static_cast<unsigned>(saved.state.queue.size()));
+      whole.savedLabel = buf;
+    }
+    if (whole.loaded) items.insert(items.begin(), std::move(whole));
+  }
+  if (selectedIndex >= static_cast<int>(items.size())) {
+    selectedIndex = items.empty() ? 0 : static_cast<int>(items.size()) - 1;
+  }
 }
 
 int FlashcardLinearBrowserActivity::findDeck(const std::string& path) const {
   for (size_t i = 0; i < items.size(); ++i) {
-    if (!items[i].isFolder && items[i].path == path) return static_cast<int>(i);
+    if (!items[i].isFolder && !items[i].isWholeFolder && items[i].path == path) return static_cast<int>(i);
   }
   return -1;
 }
@@ -72,10 +98,11 @@ FlashcardNextDeck FlashcardLinearBrowserActivity::resolveNextDeckThunk(void* sel
 // Next readable deck of the same folder, in list order, without wrapping.
 FlashcardNextDeck FlashcardLinearBrowserActivity::resolveNextDeck() {
   FlashcardNextDeck offer;
+  if (!currentPath.empty() && currentPath.back() == '/') return offer;  // whole folder: no next deck
   const int current = findDeck(currentPath);
   if (current < 0) return offer;
   for (size_t i = current + 1; i < items.size(); ++i) {
-    if (!items[i].isFolder && items[i].loaded) {
+    if (!items[i].isFolder && !items[i].isWholeFolder && items[i].loaded) {
       offer.name = items[i].name;
       offer.cards = items[i].cards;
       return offer;
@@ -98,7 +125,7 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
         const int cur = findDeck(currentPath) >= 0 ? findDeck(currentPath) : current;
         if (wantsNext && cur >= 0) {
           for (size_t i = cur + 1; i < items.size(); ++i) {
-            if (items[i].isFolder || !items[i].loaded) continue;
+            if (items[i].isFolder || items[i].isWholeFolder || !items[i].loaded) continue;
             selectedIndex = static_cast<int>(i);
             // A chained deck picks up its own saved pass, if any.
             startReview(selectedIndex, !items[i].savedLabel.empty());
@@ -106,6 +133,7 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
           }
         }
         if (cur >= 0) selectedIndex = cur;
+        if (!currentPath.empty() && currentPath.back() == '/') selectedIndex = 0;  // whole-folder row
         requestUpdate();
       });
 }
@@ -216,7 +244,17 @@ void FlashcardLinearBrowserActivity::render(RenderLock&&) {
   for (size_t i = 0; i < items.size(); ++i) {
     const Item& it = items[i];
     char buf[96];
-    if (it.isFolder) {
+    if (it.isWholeFolder) {
+      titles[i] = tr(STR_FLASHCARD_WHOLE_FOLDER);
+      const int n = snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(it.cards), tr(STR_FLASHCARD_CARDS));
+      if (it.folderCards > MAX_CARDS_PER_DECK && n > 0 && n < static_cast<int>(sizeof(buf))) {
+        snprintf(buf + n, sizeof(buf) - n, " (%s %u)", tr(STR_FLASHCARD_OF), static_cast<unsigned>(it.folderCards));
+      }
+      if (!it.savedLabel.empty()) {
+        const size_t used = strlen(buf);
+        snprintf(buf + used, sizeof(buf) - used, " \xC2\xB7 %s %s", tr(STR_FLASHCARD_SAVED), it.savedLabel.c_str());
+      }
+    } else if (it.isFolder) {
       titles[i] = it.name + "/";
       snprintf(buf, sizeof(buf), "%s \xC2\xB7 %u %s", tr(STR_FLASHCARD_FOLDER), static_cast<unsigned>(it.folderDecks),
                tr(STR_FLASHCARD_DECKS));

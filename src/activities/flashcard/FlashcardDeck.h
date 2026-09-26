@@ -43,6 +43,11 @@ class FlashcardDeck {
   // Load deck from a CSV file on SD card. Returns false on parse failure.
   bool loadFromCsv(const char* path);
 
+  // Every card of several decks as one in-memory deck (Linear "whole folder").
+  // Read-only: saveToCsv() refuses it. Stops at MAX_CARDS_PER_DECK (isTruncated()).
+  // False when none of the decks could be loaded.
+  bool loadMerged(const std::vector<std::string>& paths, const std::string& displayName, const std::string& mergedPath);
+
   // Atomically write deck to CSV: write to .tmp, remove original, rename.
   // Refuses to write a truncated deck (would drop the cards past the limit).
   bool saveToCsv(const char* path) const;
@@ -93,6 +98,7 @@ class FlashcardDeck {
 
  private:
   bool truncated = false;
+  bool merged = false;  // built by loadMerged(): never written back
   std::string name;
   std::string filePath;
   std::vector<FlashcardCard> cards;

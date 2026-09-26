@@ -50,7 +50,15 @@ FlashcardReviewActivity::FlashcardReviewActivity(GfxRenderer& renderer, MappedIn
 
 void FlashcardReviewActivity::onEnter() {
   Activity::onEnter();
-  deckLoaded = deck.loadFromCsv(deckPath.c_str());
+  const bool wholeFolder = !deckPath.empty() && deckPath.back() == '/';
+  if (wholeFolder) {
+    const std::string dir = deckPath.substr(0, deckPath.size() - 1);
+    const std::string folderName = dir.substr(dir.rfind('/') + 1);
+    deckLoaded = mode == ReviewMode::Linear && deck.loadMerged(FlashcardDeck::listDecks(dir), folderName, deckPath);
+    shuffle = true;  // a whole folder is always studied fully shuffled
+  } else {
+    deckLoaded = deck.loadFromCsv(deckPath.c_str());
+  }
   cardState = CardState::Front;
 
   if (mode == ReviewMode::Linear) {
