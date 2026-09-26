@@ -22,4 +22,23 @@ uint32_t dayIndex(const int64_t nowUnix, const int16_t offsetMinutes) {
   return static_cast<uint32_t>((local - EPOCH_2000) / SECONDS_PER_DAY);
 }
 
+uint8_t weekday(const uint32_t dayIndex) { return static_cast<uint8_t>((dayIndex + 6) % 7); }
+
+bool isFreeDay(const uint32_t dayIndex, const uint8_t freeDaysMask) { return (freeDaysMask >> weekday(dayIndex)) & 1; }
+
+uint32_t avoidFreeDays(const uint32_t due, const uint32_t today, const uint16_t interval, const uint8_t freeDaysMask) {
+  constexpr uint8_t ALL_DAYS = 0x7F;
+  const uint8_t mask = freeDaysMask & ALL_DAYS;
+  if (mask == 0 || mask == ALL_DAYS || due <= today || !isFreeDay(due, mask)) return due;
+
+  const uint32_t maxEarly = interval / 3;
+  for (uint32_t k = 1; k <= maxEarly && due - k > today; ++k) {
+    if (!isFreeDay(due - k, mask)) return due - k;
+  }
+  for (uint32_t k = 1; k <= 7; ++k) {
+    if (!isFreeDay(due + k, mask)) return due + k;
+  }
+  return due;  // unreachable: at least one day of the week is a study day
+}
+
 }  // namespace FlashcardClock

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "FlashcardClock.h"
 #include "FlashcardDoneActivity.h"
 #include "FlashcardLayout.h"
 #include "FlashcardLinearProgress.h"
@@ -245,7 +246,10 @@ void FlashcardReviewActivity::rateCard(SrsRating rating) {
   auto& card = deck.getCards()[cardIdx];
   const bool wasNew = card.isNew();
   ratingCounts[static_cast<size_t>(rating)]++;
-  deck.updateCard(cardIdx, FlashcardSrs::review(card.srs, rating, today));
+  SrsState next = FlashcardSrs::review(card.srs, rating, today);
+  // SM-2 is unchanged; only a due date on a free day moves to a study day.
+  next.dueDate = FlashcardClock::avoidFreeDays(next.dueDate, today, next.interval, FLASHCARD_STORE.freeDaysMask);
+  deck.updateCard(cardIdx, next);
 
   // First rating of a new card consumes the daily new-card quota.
   if (wasNew) {

@@ -27,6 +27,7 @@ class FlashcardStore : public PersistableStore<FlashcardStore> {
   uint8_t shuffle = 1;              // linear review: reshuffle each pass
   uint16_t newTodayCount = 0;       // new cards first rated on newTodayDate
   uint32_t newTodayDate = 0;        // day of that counter (FlashcardSrs::getToday format)
+  uint8_t freeDaysMask = 0;         // bit w = no study on weekday w (bit 0 = Sunday)
   int16_t utcOffsetMinutes = -180;  // local day boundary; X4 hides CrossPoint's clock offset
   uint32_t lastSyncUnix = 0;        // last successful NTP sync (UTC seconds), 0 = never
 };

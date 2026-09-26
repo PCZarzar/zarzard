@@ -526,12 +526,53 @@ static void testWholeFolder(const std::string& root) {
   fs::remove_all(root + "/flashcard/LPIC 101");
 }
 
+static void testFreeDays() {
+  using FlashcardClock::avoidFreeDays;
+  using FlashcardClock::weekday;
+  const uint32_t thu = FlashcardSrs::parseDateStr("24/09/2026");  // a Thursday
+  const uint32_t sat = thu + 2, sun = thu + 3, mon = thu + 4, fri = thu + 1;
+  CHECK_EQ(weekday(thu), (uint8_t)4);
+  CHECK_EQ(weekday(sun), (uint8_t)0);
+  CHECK_EQ(weekday(0), (uint8_t)6);  // 2000-01-01 was a Saturday
+  constexpr uint8_t SUNDAY = 1u << 0;
+  constexpr uint8_t SATURDAY = 1u << 6;
+
+  // No free days: untouched
+  CHECK_EQ(avoidFreeDays(sun, thu, 3, 0), sun);
+  // Not a free day: untouched
+  CHECK_EQ(avoidFreeDays(mon, thu, 4, SUNDAY), mon);
+  // Short interval landing on Sunday: later (Monday), never the same day as the review
+  CHECK_EQ(avoidFreeDays(sun, sat, 1, SUNDAY), mon);
+  CHECK_EQ(avoidFreeDays(sun, fri, 2, SUNDAY), mon);
+  // Interval >= 3: one day early (Saturday)
+  CHECK_EQ(avoidFreeDays(sun, thu, 3, SUNDAY), sat);
+  CHECK_EQ(avoidFreeDays(sun, sun - 30, 30, SUNDAY), sat);
+  // Saturday + Sunday free: interval 30 may go 2 days early (Friday); interval 4 goes to Monday
+  CHECK_EQ(avoidFreeDays(sun, sun - 30, 30, SATURDAY | SUNDAY), fri);
+  CHECK_EQ(avoidFreeDays(sun, sun - 4, 4, SATURDAY | SUNDAY), mon);
+  // Again (due today) and past dates are never moved, even on a free day
+  CHECK_EQ(avoidFreeDays(sun, sun, 0, SUNDAY), sun);
+  // Every day free is ignored (at least one study day must exist)
+  CHECK_EQ(avoidFreeDays(sun, thu, 3, 0x7F), sun);
+  // Result is never a free day and never before or on the review day, for many cases
+  for (uint32_t today = thu; today < thu + 14; ++today) {
+    for (uint16_t iv = 1; iv <= 40; ++iv) {
+      for (uint8_t mask : {SUNDAY, (uint8_t)(SATURDAY | SUNDAY), (uint8_t)0x3E}) {
+        const uint32_t due = avoidFreeDays(today + iv, today, iv, mask);
+        CHECK_EQ(FlashcardClock::isFreeDay(due, mask), false);
+        CHECK_EQ(due > today, true);
+      }
+    }
+  }
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
   testLiteralSlash();
   testLinearResume();
   testCatalog(Storage.root);
+  testFreeDays();
   testWholeFolder(Storage.root);
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");

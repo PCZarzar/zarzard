@@ -142,6 +142,13 @@ Test deck `test/decks/lpic_test.csv`:
   file order are used and the row shows "N cards (of M)". The folder pass has its
   own saved progress (Continue / Restart), keyed by the folder path and a
   fingerprint of the merged cards. No "Next deck" after a whole-folder pass.
+- **Free days (Anki "Easy Days" idea, user request).** *Settings → Free days* marks
+  weekdays with no study (`FlashcardStore::freeDaysMask`, bit 0 = Sunday; all seven is
+  refused). After SM-2 computes a card's next state (unchanged), a due date on a free
+  day moves to the nearest study day (`FlashcardClock::avoidFreeDays`): up to
+  interval/3 days earlier when possible (e.g. interval ≥ 3 → Saturday instead of
+  Sunday), otherwise later (Monday). Again (due today) is never moved. Cards that were
+  already due on a free day before the setting existed show up the next study day.
 
 ## Final build
 

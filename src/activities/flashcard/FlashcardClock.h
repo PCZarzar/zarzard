@@ -28,4 +28,17 @@ State evaluate(int64_t nowUnix, uint32_t lastSyncUnix);
 // is UTC + offsetMinutes. Same day numbering as FlashcardSrs::parseDateStr().
 uint32_t dayIndex(int64_t nowUnix, int16_t offsetMinutes);
 
+// Day of week of a day index: 0 = Sunday ... 6 = Saturday (day 0 = 2000-01-01, a Saturday).
+uint8_t weekday(uint32_t dayIndex);
+
+// Free days: bit w of freeDaysMask set = no study on weekday w (bit 0 = Sunday).
+bool isFreeDay(uint32_t dayIndex, uint8_t freeDaysMask);
+
+// Moves a freshly scheduled due date off the user's free days (Anki's "Easy
+// Days" idea); the SM-2 interval itself is untouched. A due date on a free day
+// goes to the nearest study day: earlier when the interval is long enough that
+// reviewing up to interval/3 days early is harmless, otherwise later. Due dates
+// today or earlier (Again) and an all-days-free mask are left alone.
+uint32_t avoidFreeDays(uint32_t due, uint32_t today, uint16_t interval, uint8_t freeDaysMask);
+
 }  // namespace FlashcardClock
