@@ -27,6 +27,7 @@
 #include "FlashcardSrs.h"
 #include "FlashcardStatsScan.h"
 #include "reference_parser.h"
+#include "util/SummariesPath.h"
 
 extern size_t g_testLargestFreeBlock;
 
@@ -1566,6 +1567,21 @@ static void testLinearPassSurvivesDeletion(const std::string& root) {
   fs::remove_all(fc);
 }
 
+static void testSummariesPath() {
+  CHECK_EQ(isSummaryPath("/summaries/LPIC 101/103.1.md"), true);
+  CHECK_EQ(isSummaryPath("/summaries/x.md"), true);
+  CHECK_EQ(isSummaryPath("/Summaries/x.md"), true);  // FAT is case-insensitive
+  CHECK_EQ(isSummaryPath("/summaries"), false);      // the folder itself, not a file in it
+  CHECK_EQ(isSummaryPath("/summaries2/x.md"), false);
+  CHECK_EQ(isSummaryPath("/summaries.md"), false);
+  CHECK_EQ(isSummaryPath("/books/summaries/x.md"), false);
+  CHECK_EQ(isSummaryPath(""), false);
+  CHECK_EQ(isSummariesDirName("summaries"), true);
+  CHECK_EQ(isSummariesDirName("SUMMARIES"), true);
+  CHECK_EQ(isSummariesDirName("summaries2"), false);
+  CHECK_EQ(isSummariesDirName("summarie"), false);
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
@@ -1587,6 +1603,7 @@ int main(int argc, char** argv) {
   testCardActionsOnFiles(Storage.root);
   testLinearExclude();
   testLinearPassSurvivesDeletion(Storage.root);
+  testSummariesPath();
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();

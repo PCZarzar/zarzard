@@ -8,8 +8,9 @@
 
 class FileBrowserActivity final : public UiListActivity {
  public:
-  // Books = standard reader browser; PickFirmware = filter to .bin only and return path via ActivityResult.
-  enum class Mode { Books, PickFirmware };
+  // Books = standard reader browser; PickFirmware = filter to .bin only and return path via ActivityResult;
+  // Summaries = reader browser confined to SUMMARIES_DIR (its root is the top level).
+  enum class Mode { Books, PickFirmware, Summaries };
 
  private:
   // Deletion
@@ -56,6 +57,8 @@ class FileBrowserActivity final : public UiListActivity {
 
   // Data loading
   void loadFiles();
+  // Top level this browser can reach: SUMMARIES_DIR in Summaries mode, "/" otherwise.
+  const char* rootPath() const;
   size_t findEntry(const std::string& name) const;
 
  public:

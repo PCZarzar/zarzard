@@ -194,6 +194,16 @@ Test deck `test/decks/lpic_test.csv`:
   (`FLASHCARD_HARD_KEY`, also the first row of Linear review). History, streak and
   Linear results start at install; forecast, phases and difficult cards come from the
   CSVs. Linear cards are only logged while the date is known (synced clock).
+- **Summaries (branch `summaries`, separate firmware `crosspoint-summaries.bin`).**
+  A *Summaries* Home entry (below Flashcards) opens CrossPoint's own file browser
+  confined to `/summaries` (created on first use; one or more folder levels); files
+  open in the normal reader (EPUB, Markdown, TXT, XTC) with its usual progress and
+  bookmarks. `/summaries` is hidden from *Browse files*, summaries never enter
+  Recents (`RecentBooksStore::addBook` ignores them) and are never moved to `/read`.
+  Leaving a summary returns to the Summaries browser (`goToFileBrowser` routes
+  summary paths there). Paths are matched case-insensitively (FAT card).
+  With 6 Home items, Lyra fits (ends at y=738 of 760) but an OPDS server would
+  overflow it. The label is "Summaries" in every language (user choice).
 
 ## Final build
 

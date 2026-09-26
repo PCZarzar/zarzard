@@ -10,7 +10,7 @@ trap 'rm -rf "$OUT"' EXIT
 cp "$REPO/test/decks/lpic_test.csv" "$OUT/"
 CXX="g++ -std=gnu++2a -Uunix -O1 -Wall -Wextra -I$HERE/stubs -I$FC -I$REPO/lib/Memory -I$REPO/.pio/libdeps/default/ArduinoJson/src"
 
-$CXX "$HERE/test_flashcard.cpp" "$FC/FlashcardDeck.cpp" "$FC/FlashcardSrs.cpp" "$FC/FlashcardClock.cpp" \
+$CXX -I"$REPO/src" "$HERE/test_flashcard.cpp" "$FC/FlashcardDeck.cpp" "$FC/FlashcardSrs.cpp" "$FC/FlashcardClock.cpp" \
   "$FC/FlashcardCatalog.cpp" "$FC/FlashcardCsv.cpp" "$FC/FlashcardFolderIndex.cpp" "$HERE/stubs/FlashcardMemoryStub.cpp" \
   "$FC/FlashcardPlanner.cpp" "$FC/FlashcardDeckOptions.cpp" "$FC/FlashcardHistory.cpp" "$FC/FlashcardPeriods.cpp" \
   "$FC/FlashcardStatsScan.cpp" "$FC/FlashcardCardActions.cpp" -o "$OUT/test_flashcard"

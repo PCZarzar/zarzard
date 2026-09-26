@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <iterator>
 
+#include "util/SummariesPath.h"
+
 void RecentBooksStore::toJson(JsonDocument& doc) const {
   JsonArray arr = doc["books"].to<JsonArray>();
   for (const auto& book : recentBooks) {
@@ -42,6 +44,9 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
 
 void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
                                const std::string& coverBmpPath) {
+  // Summaries are kept apart from the book library.
+  if (isSummaryPath(path)) return;
+
   // Drop stale entries first so a new add can't evict a valid book in their stead.
   pruneMissing();
 

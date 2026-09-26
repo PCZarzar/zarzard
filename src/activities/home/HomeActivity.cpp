@@ -24,7 +24,7 @@
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 5;  // File Browser, Recents, File transfer, Flashcards, Settings
+  int count = 6;  // File Browser, Recents, File transfer, Flashcards, Summaries, Settings
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -195,6 +195,9 @@ void HomeActivity::loop() {
       case HomeMenuItem::FLASHCARDS:
         onFlashcardsOpen();
         break;
+      case HomeMenuItem::SUMMARIES:
+        onSummariesOpen();
+        break;
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
         break;
@@ -312,8 +315,8 @@ void HomeActivity::render(RenderLock&&) {
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
-                                        tr(STR_FLASHCARDS), tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Bookmark, Settings};
+                                        tr(STR_FLASHCARDS),   tr(STR_SUMMARIES),         tr(STR_SETTINGS_TITLE)};
+  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Bookmark, Book, Settings};
 
   if (hasOpdsServers) {
     menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
@@ -362,6 +365,8 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onSummariesOpen() { activityManager.goToSummaries(); }
 
 void HomeActivity::onFlashcardsOpen() {
   activityManager.replaceActivity(std::make_unique<FlashcardHomeActivity>(renderer, mappedInput));

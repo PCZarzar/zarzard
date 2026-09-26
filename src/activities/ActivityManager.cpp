@@ -26,6 +26,7 @@
 #include "util/BmpViewerActivity.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#include "util/SummariesPath.h"
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -245,7 +246,14 @@ void ActivityManager::goToUsbDrive() {
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
-  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
+  // Leaving a summary returns to the Summaries browser, never the book library.
+  const auto mode = isSummaryPath(path) ? FileBrowserActivity::Mode::Summaries : FileBrowserActivity::Mode::Books;
+  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), mode));
+}
+
+void ActivityManager::goToSummaries() {
+  replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, SUMMARIES_DIR,
+                                                        FileBrowserActivity::Mode::Summaries));
 }
 
 void ActivityManager::goToRecentBooks() {
@@ -310,6 +318,8 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     } else if (activityName.rfind("Flashcard", 0) == 0) {
       initialMenuItem = HomeMenuItem::FLASHCARDS;
+    } else if (activityName == "SummariesBrowser") {
+      initialMenuItem = HomeMenuItem::SUMMARIES;
     }
   }
   replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh));

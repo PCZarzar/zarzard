@@ -15,6 +15,7 @@
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/SummariesPath.h"
 
 namespace fui = freeink::ui;
 
@@ -28,9 +29,12 @@ std::string getFileExtension(const std::string& filename);
 
 FileBrowserActivity::FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                          std::string initialPath, const Mode mode)
-    : UiListActivity("FileBrowser", renderer, mappedInput, /*wantsTouchLongPress=*/true),
+    : UiListActivity(mode == Mode::Summaries ? "SummariesBrowser" : "FileBrowser", renderer, mappedInput,
+                     /*wantsTouchLongPress=*/true),
       mode(mode),
-      basepath(initialPath.empty() ? "/" : std::move(initialPath)) {}
+      basepath(initialPath.empty() ? rootPath() : std::move(initialPath)) {}
+
+const char* FileBrowserActivity::rootPath() const { return mode == Mode::Summaries ? SUMMARIES_DIR : "/"; }
 
 void FileBrowserActivity::loadFiles() {
   files.clear();
@@ -59,6 +63,8 @@ void FileBrowserActivity::loadFiles() {
     }
 
     if (isDirectory) {
+      // Summaries have their own Home entry; keep them out of the book library.
+      if (mode == Mode::Books && basepath == "/" && isSummariesDirName(fileNameBuffer.get())) continue;
       files.emplace_back(std::string(fileNameBuffer.get()) + "/");
     } else {
       std::string_view filename{fileNameBuffer.get()};
@@ -129,9 +135,13 @@ void FileBrowserActivity::onEnter() {
     return;
   }
 
+  if (mode == Mode::Summaries) {
+    Storage.mkdir(SUMMARIES_DIR);  // first use: give the user a folder to fill
+    if (!isSummaryPath(basepath)) basepath = SUMMARIES_DIR;
+  }
   auto root = Storage.open(basepath.c_str());
   if (!root) {
-    basepath = "/";
+    basepath = rootPath();
     loadFiles();
   } else if (!root.isDirectory()) {
     const std::string oldPath = basepath;
@@ -273,7 +283,7 @@ void FileBrowserActivity::activateSelected(const bool forceDelete) {
     return;
   }
 
-  if (mode == Mode::Books && (forceDelete || mappedInput.getHeldTime() >= GO_HOME_MS)) {
+  if (mode != Mode::PickFirmware && (forceDelete || mappedInput.getHeldTime() >= GO_HOME_MS)) {
     // --- LONG PRESS ACTION: DELETE FILE OR DIRECTORY ---
     std::string cleanBasePath = basepath;
     if (cleanBasePath.back() != '/') cleanBasePath += "/";
@@ -337,13 +347,13 @@ void FileBrowserActivity::activateSelected(const bool forceDelete) {
 bool FileBrowserActivity::handleCustomInput() {
   // Long press BACK (1s+) goes to root folder (Books mode only).
   // In firmware-pick mode we keep navigation simple: short Back = up dir / cancel.
-  if (mode == Mode::Books && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() >= GO_HOME_MS && basepath != "/") {
+  if (mode != Mode::PickFirmware && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() >= GO_HOME_MS && basepath != rootPath()) {
     {
       // buildScreen() runs on the render task and reads basepath plus the
       // row caches rebuildRowItems() frees; mutate only under the render lock.
       RenderLock lock(*this);
-      basepath = "/";
+      basepath = rootPath();
       loadFiles();
       nav.selected = 0;
       nav.top = 0;
@@ -364,7 +374,7 @@ bool FileBrowserActivity::handleButtons() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     // Short press: go up one directory, or go home if at root
     if (mappedInput.getHeldTime() < GO_HOME_MS) {
-      if (basepath != "/") {
+      if (basepath != rootPath()) {
         const std::string oldPath = basepath;
 
         {
@@ -390,7 +400,7 @@ bool FileBrowserActivity::handleButtons() {
         setResult(std::move(res));
         finish();
       } else {
-        onGoHome();
+        onGoHome(mode == Mode::Summaries ? HomeMenuItem::SUMMARIES : HomeMenuItem::NONE);
       }
     }
     return true;
@@ -500,17 +510,18 @@ void FileBrowserActivity::drawChrome() {
   const auto pageWidth = renderer.getScreenWidth();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  std::string folderName =
-      (mode == Mode::PickFirmware)
-          ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
-          : ((basepath == "/") ? std::string(tr(STR_SD_CARD)) : basepath.substr(basepath.rfind('/') + 1));
+  std::string folderName = (mode == Mode::PickFirmware) ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
+                           : (basepath == rootPath())
+                               ? std::string(mode == Mode::Summaries ? tr(STR_SUMMARIES) : tr(STR_SD_CARD))
+                               : basepath.substr(basepath.rfind('/') + 1);
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());
 }
 
 void FileBrowserActivity::drawFooter() {
-  const char* backLabel = (basepath == "/") ? (mode == Mode::PickFirmware ? tr(STR_BACK) : tr(STR_HOME)) : tr(STR_BACK);
+  const char* backLabel =
+      (basepath == rootPath()) ? (mode == Mode::PickFirmware ? tr(STR_BACK) : tr(STR_HOME)) : tr(STR_BACK);
   // In PickFirmware mode, Confirm on a .bin returns the path to the caller (not "open"); show
   // STR_SELECT instead. Directories in the same picker still descend, so keep STR_OPEN there.
   const bool selectingFirmwareFile = mode == Mode::PickFirmware && !files.empty() && nav.selected >= 0 &&
