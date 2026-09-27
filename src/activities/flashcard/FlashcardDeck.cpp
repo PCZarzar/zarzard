@@ -9,10 +9,8 @@
 #include <cstring>
 #include <memory>
 
-// Storage.readFile() caps at 50KB inside SDCardManager, which silently truncated
-// 500-card decks. Flashcards use this larger cap when loading/importing so real
-// decks don't lose their tail. Allocation is one-shot and freed before render.
-static constexpr size_t FLASHCARD_MAX_FILE_BYTES = 256 * 1024;
+#include "FlashcardCsv.h"
+#include "FlashcardMemory.h"
 
 static constexpr const char* TAG = "FlashcardDeck";
 static constexpr char CSV_HEADER[] = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
@@ -113,43 +111,6 @@ std::string FlashcardCard::frontHint() const {
 // CSV parsing
 // ---------------------------------------------------------------------------
 
-// Parse one CSV field. Handles quoted fields with "" escaping.
-// Advances ptr past the trailing comma (or to end of string).
-std::string FlashcardDeck::parseCsvField(const char*& ptr) {
-  std::string result;
-  if (*ptr == '\0') return result;
-
-  if (*ptr == '"') {
-    // Quoted field
-    ++ptr;
-    while (*ptr != '\0') {
-      if (*ptr == '"') {
-        ++ptr;
-        if (*ptr == '"') {
-          // Escaped double quote
-          result += '"';
-          ++ptr;
-        } else {
-          // End of quoted field
-          break;
-        }
-      } else {
-        result += *ptr++;
-      }
-    }
-    // Skip trailing comma
-    if (*ptr == ',') ++ptr;
-  } else {
-    // Unquoted field — read until comma or end of line
-    while (*ptr != '\0' && *ptr != ',' && *ptr != '\r' && *ptr != '\n') {
-      result += *ptr++;
-    }
-    if (*ptr == ',') ++ptr;
-  }
-
-  return result;
-}
-
 // Write a field, quoting it if it contains commas, newlines, or double quotes.
 void FlashcardDeck::writeCsvField(std::string& out, const std::string& field) {
   bool needsQuote = (field.find(',') != std::string::npos || field.find('"') != std::string::npos ||
@@ -170,143 +131,136 @@ void FlashcardDeck::writeCsvField(std::string& out, const std::string& field) {
 // FlashcardDeck — load / save
 // ---------------------------------------------------------------------------
 
+namespace {
+// SRS columns as the original parser read them: all three present, or a new card.
+SrsState srsFromRecord(const FlashcardCsvReader::Record& rec) {
+  SrsState srs;
+  if (!rec.due.empty() && !rec.interval.empty() && !rec.ease.empty()) {
+    srs.dueDate = FlashcardSrs::parseDateStr(rec.due.c_str());
+    srs.interval = (uint16_t)atoi(rec.interval.c_str());
+    srs.ease = (uint16_t)atoi(rec.ease.c_str());
+    if (srs.ease < 130) srs.ease = 130;
+    if (srs.ease > 400) srs.ease = 400;
+  }
+  return srs;
+}
+
+// Counts the records of a CSV (all of them) and checks the whole file was read.
+bool countRecords(const char* path, size_t& count) {
+  HalFile file;
+  if (!Storage.openFileForRead(TAG, path, file)) {
+    LOG_ERR(TAG, "Failed to open CSV: %s", path);
+    return false;
+  }
+  const size_t fsize = file.size();
+  if (fsize == 0) {
+    LOG_ERR(TAG, "Empty CSV: %s", path);
+    return false;
+  }
+  FlashcardCsvReader reader(file);
+  FlashcardCsvReader::Record rec;
+  reader.skipHeader();
+  count = 0;
+  while (reader.next(rec)) ++count;
+  if (reader.failed() || reader.bytesRead() != fsize) {
+    // A partial read would load (and later save) a deck missing its tail.
+    LOG_ERR(TAG, "Short read (%u of %u bytes): %s", (unsigned)reader.bytesRead(), (unsigned)fsize, path);
+    return false;
+  }
+  return true;
+}
+}  // namespace
+
 bool FlashcardDeck::loadFromCsv(const char* path) {
   cards.clear();
+  cards.shrink_to_fit();
   truncated = false;
-  merged = false;
+  oom = false;
   filePath = path;
+  name = displayNameForPath(filePath);
 
-  // Use size-aware read — SDCardManager::readFile caps at 50KB and would
-  // silently drop the tail of any real 500-card deck.
-  size_t fsize = 0;
-  {
-    HalFile probe;
-    if (!Storage.openFileForRead(TAG, path, probe)) {
-      LOG_ERR(TAG, "Failed to open CSV: %s", path);
-      return false;
-    }
-    fsize = probe.size();
-  }
-  if (fsize == 0 || fsize > FLASHCARD_MAX_FILE_BYTES) {
-    LOG_ERR(TAG, "CSV size out of range: %u (max %u): %s", (unsigned)fsize, (unsigned)FLASHCARD_MAX_FILE_BYTES, path);
+  // Pass 1: count, so the card vector is allocated once at its exact size.
+  size_t count = 0;
+  if (!countRecords(path, count)) return false;
+  const size_t keep = std::min(count, MAX_CARDS_PER_DECK);
+  if (flashcardLargestFreeBlock() < keep * sizeof(FlashcardCard) + FLASHCARD_HEAP_RESERVE) {
+    LOG_ERR(TAG, "Not enough memory for %u cards: %s", (unsigned)keep, path);
+    oom = true;
     return false;
   }
+  cards.reserve(keep);
 
-  auto buffer = makeUniqueNoThrow<char[]>(fsize + 1);
-  if (!buffer) {
-    LOG_ERR(TAG, "Out of heap for deck buffer (%u bytes)", (unsigned)(fsize + 1));
-    return false;
-  }
-  const size_t bytesRead = Storage.readFileToBuffer(path, buffer.get(), fsize + 1);
-  if (bytesRead != fsize) {
-    // A partial read would load (and later save) a deck missing its tail.
-    LOG_ERR(TAG, "Short read (%u of %u bytes): %s", (unsigned)bytesRead, (unsigned)fsize, path);
-    return false;
-  }
-  // Drop stray NUL bytes (older firmware wrote one after the header), which
-  // would otherwise end parsing and make the deck look empty.
-  size_t len = 0;
-  for (size_t i = 0; i < bytesRead; ++i) {
-    if (buffer[i] != '\0') buffer[len++] = buffer[i];
-  }
-  buffer[len] = '\0';
-
-  const char* ptr = buffer.get();
-
-  // Skip header line
-  while (*ptr != '\0' && *ptr != '\n') ++ptr;
-  if (*ptr == '\n') ++ptr;
-
-  // Rough upper bound (a card line is rarely under ~20 bytes), capped by the limit.
-  cards.reserve(std::min(MAX_CARDS_PER_DECK, len / 20 + 1));
+  // Pass 2: build the cards. Strings are copied at their exact size.
+  HalFile file;
+  if (!Storage.openFileForRead(TAG, path, file)) return false;
+  FlashcardCsvReader reader(file);
+  FlashcardCsvReader::Record rec;
+  reader.skipHeader();
   uint16_t nextId = 1;
-  while (*ptr != '\0') {
-    // Skip blank lines
-    if (*ptr == '\r' || *ptr == '\n') {
-      ++ptr;
-      continue;
-    }
-
+  while (reader.next(rec)) {
     if (cards.size() >= MAX_CARDS_PER_DECK) {
       LOG_ERR(TAG, "Deck %s exceeds MAX_CARDS_PER_DECK (%u), truncating", path, (unsigned)MAX_CARDS_PER_DECK);
       truncated = true;
       break;
     }
-
-    FlashcardCard card;
-
-    // card_id
-    std::string idStr = parseCsvField(ptr);
-    card.id = idStr.empty() ? nextId : (uint16_t)atoi(idStr.c_str());
-    nextId = card.id + 1;
-
-    // front_content, back_content
-    card.frontContent = parseCsvField(ptr);
-    card.backContent = parseCsvField(ptr);
-
-    // sr_due, sr_interval, sr_ease
-    std::string srDue = parseCsvField(ptr);
-    std::string srInterval = parseCsvField(ptr);
-    std::string srEase = parseCsvField(ptr);
-
-    if (!srDue.empty() && !srInterval.empty() && !srEase.empty()) {
-      card.srs.dueDate = FlashcardSrs::parseDateStr(srDue.c_str());
-      card.srs.interval = (uint16_t)atoi(srInterval.c_str());
-      card.srs.ease = (uint16_t)atoi(srEase.c_str());
-      // Clamp ease to valid range [130, 400]
-      if (card.srs.ease < 130) card.srs.ease = 130;
-      if (card.srs.ease > 400) card.srs.ease = 400;
+    if (flashcardLargestFreeBlock() < FLASHCARD_HEAP_RESERVE) {
+      LOG_ERR(TAG, "Out of memory after %u cards: %s", (unsigned)cards.size(), path);
+      cards.clear();
+      cards.shrink_to_fit();
+      oom = true;
+      return false;
     }
-    // else: new card — srs stays at default values
-
-    // Skip to end of line
-    while (*ptr != '\0' && *ptr != '\n') ++ptr;
-    if (*ptr == '\n') ++ptr;
-
+    FlashcardCard card;
+    card.id = rec.id.empty() ? nextId : (uint16_t)atoi(rec.id.c_str());
+    nextId = card.id + 1;
+    card.frontContent = std::string(rec.front);
+    card.backContent = std::string(rec.back);
+    card.srs = srsFromRecord(rec);
     cards.push_back(std::move(card));
   }
-
-  // Derive display name from filename
-  size_t sep = filePath.rfind('/');
-  std::string filename = (sep == std::string::npos) ? filePath : filePath.substr(sep + 1);
-  name = fileNameToDisplayName(filename);
-
+  if (reader.failed()) {
+    LOG_ERR(TAG, "Read error: %s", path);
+    cards.clear();
+    return false;
+  }
   LOG_DBG(TAG, "Loaded %u cards from %s", (unsigned)cards.size(), path);
   return true;
 }
 
-bool FlashcardDeck::loadMerged(const std::vector<std::string>& paths, const std::string& displayName,
-                               const std::string& mergedPath) {
-  cards.clear();
-  truncated = false;
-  bool anyLoaded = false;
-  for (const auto& path : paths) {
-    // One source deck in RAM at a time next to the merged cards.
-    FlashcardDeck part;
-    if (!part.loadFromCsv(path.c_str())) continue;
-    anyLoaded = true;
-    auto& src = part.getCards();
-    for (auto& card : src) {
-      if (cards.size() >= MAX_CARDS_PER_DECK) {
-        truncated = true;
-        break;
-      }
-      cards.push_back(std::move(card));
+bool FlashcardDeck::scanStats(const char* path, const uint32_t today, DeckStats& out, bool& isTruncated) {
+  out = DeckStats{};
+  isTruncated = false;
+  HalFile file;
+  if (!Storage.openFileForRead(TAG, path, file)) return false;
+  const size_t fsize = file.size();
+  if (fsize == 0) return false;
+  FlashcardCsvReader reader(file);
+  FlashcardCsvReader::Record rec;
+  reader.skipHeader();
+  while (reader.next(rec)) {
+    if (out.totalCards >= MAX_CARDS_PER_DECK) {
+      isTruncated = true;
+      break;
     }
-    if (part.isTruncated()) truncated = true;  // that deck's own tail was already dropped
-    if (truncated) break;
+    ++out.totalCards;
+    const SrsState srs = srsFromRecord(rec);
+    if (srs.dueDate == 0) {
+      ++out.newCards;
+    } else if (srs.dueDate <= today) {
+      ++out.dueCards;
+    }
   }
-  merged = true;
-  name = displayName;
-  filePath = mergedPath;
-  return anyLoaded;
+  if (reader.failed()) return false;
+  if (!isTruncated && reader.bytesRead() != fsize) return false;
+  return true;
+}
+
+std::string FlashcardDeck::displayNameForPath(const std::string& path) {
+  const size_t sep = path.rfind('/');
+  return fileNameToDisplayName(sep == std::string::npos ? path : path.substr(sep + 1));
 }
 
 bool FlashcardDeck::saveToCsv(const char* path) const {
-  if (merged) {
-    LOG_ERR(TAG, "Not saving a merged deck: %s", path);
-    return false;
-  }
   if (truncated) {
     LOG_ERR(TAG, "Not saving truncated deck (> %u cards): %s", (unsigned)MAX_CARDS_PER_DECK, path);
     return false;

@@ -24,7 +24,8 @@ std::vector<std::string> decksIn(const std::string& folder);
 // Every deck: /flashcard first, then each folder in name order.
 std::vector<std::string> allDecks();
 
-// Loads a deck to fill in its stats for `today`. False if it cannot be read.
+// Fills in a deck's stats for `today` by scanning its CSV (no card is kept in
+// RAM). False if it cannot be read.
 bool load(const std::string& path, uint32_t today, Entry& out);
 
 // Has something to review now: due cards, or new cards while the daily quota

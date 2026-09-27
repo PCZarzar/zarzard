@@ -51,11 +51,12 @@ FlashcardReviewActivity::FlashcardReviewActivity(GfxRenderer& renderer, MappedIn
 
 void FlashcardReviewActivity::onEnter() {
   Activity::onEnter();
-  const bool wholeFolder = !deckPath.empty() && deckPath.back() == '/';
+  wholeFolder = !deckPath.empty() && deckPath.back() == '/';
   if (wholeFolder) {
     const std::string dir = deckPath.substr(0, deckPath.size() - 1);
-    const std::string folderName = dir.substr(dir.rfind('/') + 1);
-    deckLoaded = mode == ReviewMode::Linear && deck.loadMerged(FlashcardDeck::listDecks(dir), folderName, deckPath);
+    folderName = dir.substr(dir.rfind('/') + 1);
+    // Only card positions are kept in RAM, so any folder size fits.
+    deckLoaded = mode == ReviewMode::Linear && folderIndex.build(FlashcardDeck::listDecks(dir));
     shuffle = true;  // a whole folder is always studied fully shuffled
   } else {
     deckLoaded = deck.loadFromCsv(deckPath.c_str());
@@ -68,18 +69,20 @@ void FlashcardReviewActivity::onEnter() {
     bool restored = false;
     if (deckLoaded && resumeLinear) {
       FlashcardLinearProgress::Saved saved;
-      if (FlashcardLinearProgress::load(deckPath, saved) && saved.fingerprint == deck.contentFingerprint()) {
-        restored = linear.restore(saved.state, deck.getCards().size(), shuffle);
+      if (FlashcardLinearProgress::load(deckPath, saved) && saved.fingerprint == linearFingerprint()) {
+        restored = linear.restore(saved.state, linearDeckSize(), shuffle);
       }
       if (!restored) LOG_INF("FCRV", "Saved linear pass unusable (deck changed?), starting over: %s", deckPath.c_str());
     }
     if (!restored) {
       if (deckLoaded) FlashcardLinearProgress::clear(deckPath);
-      linear.start(deckLoaded ? deck.getCards().size() : 0, shuffle, esp_random());
+      linear.start(deckLoaded ? linearDeckSize() : 0, shuffle, esp_random());
     }
     if (linear.passDone()) {
       buildSummaryOptions();
       cardState = CardState::Summary;
+    } else {
+      prepareLinearCard();
     }
     requestUpdate();
     return;
@@ -118,7 +121,7 @@ void FlashcardReviewActivity::onExit() {
 void FlashcardReviewActivity::saveLinearProgress() {
   if (!deckLoaded) return;
   FlashcardLinearProgress::Saved saved;
-  saved.fingerprint = deck.contentFingerprint();
+  saved.fingerprint = linearFingerprint();
   saved.state = linear.exportState();
   if (FlashcardLinearProgress::save(deckPath, saved)) {
     linearDirty = false;
@@ -230,6 +233,7 @@ void FlashcardReviewActivity::loopSummary() {
     cardState = CardState::Summary;
   } else {
     cardState = CardState::Front;
+    prepareLinearCard();
   }
   requestUpdate();
 }
@@ -294,15 +298,16 @@ void FlashcardReviewActivity::saveProgress() {
 // result (next deck or not) is forwarded to the deck list.
 void FlashcardReviewActivity::showDone() {
   const FlashcardNextDeck next = nextDeckProvider();
-  startActivityForResult(std::make_unique<FlashcardDoneActivity>(renderer, mappedInput, ratingCounts, next),
-                         [this](const ActivityResult& result) {
-                           const auto* menu = std::get_if<MenuResult>(&result.data);
-                           if (menu && menu->action == RESULT_NEXT_DECK) {
-                             finishWithNextDeck();
-                           } else {
-                             finish();
-                           }
-                         });
+  startActivityForResult(
+      std::make_unique<FlashcardDoneActivity>(renderer, mappedInput, ratingCounts, next, !deckLoaded),
+      [this](const ActivityResult& result) {
+        const auto* menu = std::get_if<MenuResult>(&result.data);
+        if (menu && menu->action == RESULT_NEXT_DECK) {
+          finishWithNextDeck();
+        } else {
+          finish();
+        }
+      });
 }
 
 void FlashcardReviewActivity::markLinear(LinearPile pile) {
@@ -315,8 +320,31 @@ void FlashcardReviewActivity::markLinear(LinearPile pile) {
     cardState = CardState::Summary;
   } else {
     cardState = CardState::Front;
+    prepareLinearCard();
   }
   requestUpdate();
+}
+
+size_t FlashcardReviewActivity::linearDeckSize() const {
+  return wholeFolder ? folderIndex.size() : deck.getCards().size();
+}
+
+uint32_t FlashcardReviewActivity::linearFingerprint() const {
+  return wholeFolder ? folderIndex.fingerprint() : deck.contentFingerprint();
+}
+
+const std::string& FlashcardReviewActivity::displayName() const { return wholeFolder ? folderName : deck.getName(); }
+
+void FlashcardReviewActivity::prepareLinearCard() {
+  if (!wholeFolder || linear.passDone()) return;
+  const size_t idx = linear.current();
+  if (idx == folderCardIndex) return;
+  folderCardIndex = idx;
+  folderCardOk = folderIndex.loadCard(idx, folderCard);
+  if (!folderCardOk) {
+    folderCard = FlashcardCard{};
+    folderCard.frontContent = tr(STR_FLASHCARD_NOT_LOADED);
+  }
 }
 
 void FlashcardReviewActivity::buildSummaryOptions() {
@@ -346,7 +374,7 @@ void FlashcardReviewActivity::render(RenderLock&&) {
       return;
     }
     if (linear.passDone()) return;
-    renderCard(deck.getCards()[linear.current()]);
+    renderCard(wholeFolder ? folderCard : deck.getCards()[linear.current()]);
     return;
   }
   if (reviewQueue.empty() || currentQueueIndex >= reviewQueue.size()) return;
@@ -364,7 +392,7 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
              static_cast<unsigned>(linear.pass()), static_cast<unsigned>(linear.shownPosition()),
              static_cast<unsigned>(linear.passSize()));
   }
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, deck.getName().c_str(),
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str(),
                  progress[0] ? progress : nullptr);
 
   const auto area = cardArea(renderer);
@@ -415,7 +443,7 @@ void FlashcardReviewActivity::renderSummary() {
   renderer.clearScreen();
   char title[32];
   snprintf(title, sizeof(title), "%s %u", tr(STR_FLASHCARD_PASS), static_cast<unsigned>(linear.pass()));
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, deck.getName().c_str(), title);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str(), title);
 
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   renderer.drawCenteredText(UI_12_FONT_ID, y, title, true, EpdFontFamily::BOLD);

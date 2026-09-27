@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "FlashcardCatalog.h"
+#include "FlashcardFolderIndex.h"
 #include "FlashcardLinearProgress.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
@@ -67,7 +68,7 @@ void FlashcardLinearBrowserActivity::reload() {
       whole.loaded = true;
       whole.folderCards += it.cards;
     }
-    whole.cards = static_cast<uint16_t>(std::min<uint32_t>(whole.folderCards, MAX_CARDS_PER_DECK));
+    whole.cards = static_cast<uint16_t>(std::min<uint32_t>(whole.folderCards, FlashcardFolderIndex::MAX_CARDS));
     FlashcardLinearProgress::Saved saved;
     if (whole.loaded && FlashcardLinearProgress::load(whole.path, saved)) {
       char buf[48];
@@ -247,7 +248,7 @@ void FlashcardLinearBrowserActivity::render(RenderLock&&) {
     if (it.isWholeFolder) {
       titles[i] = tr(STR_FLASHCARD_WHOLE_FOLDER);
       const int n = snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(it.cards), tr(STR_FLASHCARD_CARDS));
-      if (it.folderCards > MAX_CARDS_PER_DECK && n > 0 && n < static_cast<int>(sizeof(buf))) {
+      if (it.folderCards > FlashcardFolderIndex::MAX_CARDS && n > 0 && n < static_cast<int>(sizeof(buf))) {
         snprintf(buf + n, sizeof(buf) - n, " (%s %u)", tr(STR_FLASHCARD_OF), static_cast<unsigned>(it.folderCards));
       }
       if (!it.savedLabel.empty()) {

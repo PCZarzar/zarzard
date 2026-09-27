@@ -3,10 +3,12 @@
 #include <HalStorage.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -14,8 +16,13 @@
 #include "FlashcardCatalog.h"
 #include "FlashcardClock.h"
 #include "FlashcardDeck.h"
+#include "FlashcardFolderIndex.h"
 #include "FlashcardLinearSession.h"
+#include "FlashcardMemory.h"
 #include "FlashcardSrs.h"
+#include "reference_parser.h"
+
+extern size_t g_testLargestFreeBlock;
 
 static int failures = 0;
 static int checks = 0;
@@ -477,7 +484,8 @@ static void testWholeFolder(const std::string& root) {
   fs::create_directories(dir);
   auto put = [&](const std::string& name, int from, int count) {
     std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
-    for (int i = from; i < from + count; ++i) csv += std::to_string(i) + ",f" + std::to_string(i) + ",b,,,\n";
+    for (int i = from; i < from + count; ++i)
+      csv += std::to_string(i) + ",\"f" + std::to_string(i) + ", x\",b" + std::to_string(i) + ",,,\n";
     std::ofstream(dir + "/" + name, std::ios::binary) << csv;
     return csv;
   };
@@ -485,45 +493,197 @@ static void testWholeFolder(const std::string& root) {
   const std::string b = put("b.csv", 100, 4);
   const auto paths = FlashcardDeck::listDecks("/flashcard/LPIC 101");
 
-  FlashcardDeck m;
-  CHECK_EQ(m.loadMerged(paths, "LPIC 101", "/flashcard/LPIC 101/"), true);
-  CHECK_EQ(m.getCards().size(), (size_t)7);
-  CHECK_EQ(m.getName(), std::string("LPIC 101"));
-  CHECK_EQ(m.isTruncated(), false);
-  CHECK_EQ(m.getCards()[0].frontContent, std::string("f1"));
-  CHECK_EQ(m.getCards()[6].frontContent, std::string("f103"));
-  CHECK_EQ(m.saveToCsv("/flashcard/LPIC 101/a.csv"), false);  // merged decks are read-only
+  FlashcardFolderIndex idx;
+  CHECK_EQ(idx.build(paths), true);
+  CHECK_EQ(idx.size(), (size_t)7);
+  CHECK_EQ(idx.isTruncated(), false);
+  FlashcardCard c;
+  CHECK_EQ(idx.loadCard(0, c), true);
+  CHECK_EQ(c.frontContent, std::string("f1, x"));
+  CHECK_EQ(idx.loadCard(6, c), true);
+  CHECK_EQ(c.frontContent, std::string("f103, x"));
+  CHECK_EQ(c.backContent, std::string("b103"));
+  CHECK_EQ(idx.loadCard(7, c), false);
+  // The CSVs are only read
   CHECK_EQ(slurp(dir + "/a.csv"), a);
   CHECK_EQ(slurp(dir + "/b.csv"), b);
-  // Stable fingerprint across loads (Continue works), changes if a deck changes
-  FlashcardDeck m2;
-  m2.loadMerged(paths, "LPIC 101", "/flashcard/LPIC 101/");
-  CHECK_EQ(m.contentFingerprint(), m2.contentFingerprint());
+  // Stable fingerprint across builds (Continue works), changes when a card changes
+  FlashcardFolderIndex idx2;
+  idx2.build(paths);
+  CHECK_EQ(idx.fingerprint(), idx2.fingerprint());
+  put("b.csv", 100, 5);
+  FlashcardFolderIndex idx3;
+  idx3.build(FlashcardDeck::listDecks("/flashcard/LPIC 101"));
+  CHECK_EQ(idx.fingerprint() == idx3.fingerprint(), false);
+  CHECK_EQ(idx3.size(), (size_t)8);
 
-  // One pass over every card of the folder, shuffled
+  // Folders larger than one deck's limit: all cards are indexed (600 > 500)
+  put("c.csv", 1000, 600);
+  FlashcardFolderIndex big;
+  CHECK_EQ(big.build(FlashcardDeck::listDecks("/flashcard/LPIC 101")), true);
+  CHECK_EQ(big.size(), (size_t)608);
+  CHECK_EQ(big.isTruncated(), false);
+  CHECK_EQ(big.loadCard(607, c), true);
+  CHECK_EQ(c.frontContent, std::string("f1599, x"));
+  // Shuffled pass over all of them
   FlashcardLinearSession s;
-  s.start(m.getCards().size(), true, 4242);
+  s.start(big.size(), true, 99);
   auto q = s.passQueue();
   std::sort(q.begin(), q.end());
-  CHECK_EQ(q, iota(7));
-
-  // Over the card limit: exactly MAX cards, flagged truncated
-  put("c.csv", 1000, 498);
-  FlashcardDeck big;
-  CHECK_EQ(big.loadMerged(FlashcardDeck::listDecks("/flashcard/LPIC 101"), "LPIC 101", "/flashcard/LPIC 101/"), true);
-  CHECK_EQ(big.getCards().size(), MAX_CARDS_PER_DECK);
-  CHECK_EQ(big.isTruncated(), true);
-  // Exactly at the limit is not truncated
-  fs::remove(dir + "/c.csv");
-  put("c.csv", 1000, 493);
-  FlashcardDeck exact;
-  exact.loadMerged(FlashcardDeck::listDecks("/flashcard/LPIC 101"), "LPIC 101", "/flashcard/LPIC 101/");
-  CHECK_EQ(exact.getCards().size(), MAX_CARDS_PER_DECK);
-  CHECK_EQ(exact.isTruncated(), false);
+  CHECK_EQ(q, iota(608));
+  // Low memory: the index stops early instead of failing
+  g_testLargestFreeBlock = FLASHCARD_HEAP_RESERVE + 64 * 8;
+  FlashcardFolderIndex low;
+  const bool lowOk = low.build(FlashcardDeck::listDecks("/flashcard/LPIC 101"));
+  g_testLargestFreeBlock = SIZE_MAX;
+  CHECK_EQ(lowOk, true);
+  CHECK_EQ(low.isTruncated(), true);
+  CHECK_EQ(low.size() < (size_t)608, true);
   // No readable deck: fails
-  FlashcardDeck none;
-  CHECK_EQ(none.loadMerged({"/flashcard/missing.csv"}, "x", "/flashcard/x/"), false);
+  FlashcardFolderIndex none;
+  CHECK_EQ(none.build({"/flashcard/missing.csv"}), false);
   fs::remove_all(root + "/flashcard/LPIC 101");
+}
+
+// Random CSV text: quotes, doubled quotes, commas, CR/LF inside and outside
+// quotes, blank lines, stray NULs, missing and extra fields, long fields that
+// cross the reader's 512-byte buffer.
+static std::string randomCsv(std::mt19937& rng, int records) {
+  auto pick = [&](int n) { return (int)(rng() % (unsigned)n); };
+  const char* pieces[] = {"a", "b", "ã", "ç", ",", "\"", "\"\"", "\n", "\r\n", " ", "\\", "/n", "x", "\0", "é"};
+  std::string out = pick(4) == 0 ? "\xEF\xBB\xBF" : "";
+  out += "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+  for (int r = 0; r < records; ++r) {
+    if (pick(8) == 0) out += pick(2) ? "\n" : "\r\n";  // blank line
+    const int fields = 1 + pick(8);
+    for (int f = 0; f < fields; ++f) {
+      if (f) out += ',';
+      std::string v;
+      if (f == 0 && pick(3)) {
+        v = std::to_string(pick(70000));
+      } else if (f == 3 && pick(2)) {
+        v = std::to_string(1 + pick(28)) + "/" + std::to_string(1 + pick(12)) + "/20" + std::to_string(20 + pick(10));
+      } else if ((f == 4 || f == 5) && pick(2)) {
+        v = std::to_string(pick(500));
+      } else {
+        const int len = pick(10) == 0 ? 300 + pick(900) : pick(12);
+        for (int k = 0; k < len; ++k) {
+          const int pi = pick(15);
+          v += (pi == 13) ? std::string(1, '\0') : std::string(pieces[pi]);
+        }
+      }
+      if (pick(2)) {
+        std::string q = "\"";
+        for (char ch : v) q += (ch == '"') ? std::string("\"\"") : std::string(1, ch);
+        q += "\"";
+        if (pick(20) == 0) q += "tail";  // garbage after the closing quote
+        out += q;
+      } else {
+        for (char ch : v)
+          if (ch != ',' && ch != '\n' && ch != '\r' && ch != '"') out += ch;
+      }
+    }
+    out += pick(3) == 0 ? "\r\n" : "\n";
+  }
+  if (pick(3) == 0) out.pop_back();  // no final newline
+  return out;
+}
+
+static void testStreamingParserMatchesReference(const std::string& root) {
+  std::mt19937 rng(20260927);
+  int compared = 0;
+  for (int t = 0; t < 1500; ++t) {
+    const int records = (t % 50 == 0) ? 480 + (int)(rng() % 60) : (int)(rng() % 40);
+    const std::string csv = randomCsv(rng, records);
+    {
+      std::ofstream(root + "/fuzz.csv", std::ios::binary) << csv;
+    }
+    bool refTrunc = false;
+    const auto ref = refParse(csv, MAX_CARDS_PER_DECK, refTrunc);
+    FlashcardDeck d;
+    const bool ok = d.loadFromCsv("/fuzz.csv");
+    // The only intended difference: an empty file fails to load.
+    if (!ok) {
+      CHECK_EQ(csv.empty(), true);
+      continue;
+    }
+    ++compared;
+    const auto& cards = d.getCards();
+    CHECK_EQ(cards.size(), ref.size());
+    CHECK_EQ(d.isTruncated(), refTrunc);
+    bool same = cards.size() == ref.size();
+    for (size_t i = 0; same && i < cards.size(); ++i) {
+      const auto& r = ref[i];
+      SrsState srs;
+      if (!r.due.empty() && !r.interval.empty() && !r.ease.empty()) {
+        srs.dueDate = FlashcardSrs::parseDateStr(r.due.c_str());
+        srs.interval = (uint16_t)atoi(r.interval.c_str());
+        srs.ease = (uint16_t)std::clamp(atoi(r.ease.c_str()) & 0xFFFF, 130, 400);
+      }
+      same = cards[i].id == r.id && cards[i].frontContent == r.front && cards[i].backContent == r.back &&
+             cards[i].srs.dueDate == srs.dueDate && cards[i].srs.interval == srs.interval &&
+             cards[i].srs.ease == srs.ease;
+      if (!same) printf("  mismatch in case %d card %zu\n", t, i);
+    }
+    CHECK_EQ(same, true);
+    // Stats scan (no cards kept) agrees with the loaded deck
+    const uint32_t today = FlashcardSrs::parseDateStr("15/06/2025");
+    DeckStats st;
+    bool trunc = false;
+    CHECK_EQ(FlashcardDeck::scanStats("/fuzz.csv", today, st, trunc), true);
+    const DeckStats want = d.getStats(today);
+    CHECK_EQ(st.totalCards, want.totalCards);
+    CHECK_EQ(st.newCards, want.newCards);
+    CHECK_EQ(st.dueCards, want.dueCards);
+    CHECK_EQ(trunc, d.isTruncated());
+    // The folder index reads back the same text for every card
+    if (!d.isTruncated() && t % 10 == 0) {
+      FlashcardFolderIndex idx;
+      if (!cards.empty()) {
+        CHECK_EQ(idx.build({"/fuzz.csv"}), true);
+        CHECK_EQ(idx.size(), cards.size());
+        FlashcardCard c;
+        bool readBack = true;
+        for (size_t i = 0; readBack && i < cards.size(); ++i)
+          readBack =
+              idx.loadCard(i, c) && c.frontContent == cards[i].frontContent && c.backContent == cards[i].backContent;
+        CHECK_EQ(readBack, true);
+      }
+    }
+  }
+  CHECK_EQ(compared > 1400, true);
+  std::filesystem::remove(root + "/fuzz.csv");
+}
+
+static void testLowMemory(const std::string& root) {
+  // 300 cards like the English decks; with too little memory the load fails cleanly.
+  std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+  for (int i = 1; i <= 300; ++i)
+    csv += std::to_string(i) + ",\"What are you going to do? " + std::to_string(i) + "\",\"I am going to study.\",,,\n";
+  {
+    std::ofstream(root + "/english.csv", std::ios::binary) << csv;
+  }
+  g_testLargestFreeBlock = 10 * 1024;
+  FlashcardDeck d;
+  CHECK_EQ(d.loadFromCsv("/english.csv"), false);
+  CHECK_EQ(d.outOfMemory(), true);
+  CHECK_EQ(d.getCards().empty(), true);
+  // Stats need no memory for cards
+  DeckStats st;
+  bool trunc = false;
+  CHECK_EQ(FlashcardDeck::scanStats("/english.csv", 1, st, trunc), true);
+  CHECK_EQ(st.totalCards, (uint16_t)300);
+  CHECK_EQ(st.newCards, (uint16_t)300);
+  g_testLargestFreeBlock = SIZE_MAX;
+  CHECK_EQ(d.loadFromCsv("/english.csv"), true);
+  CHECK_EQ(d.getCards().size(), (size_t)300);
+  CHECK_EQ(d.outOfMemory(), false);
+  // Strings are held at their exact size (no doubling slack)
+  size_t slack = 0;
+  for (const auto& c : d.getCards())
+    slack += (c.frontContent.capacity() - c.frontContent.size()) + (c.backContent.capacity() - c.backContent.size());
+  CHECK_EQ(slack < 300 * 16, true);
+  std::filesystem::remove(root + "/english.csv");
 }
 
 static void testFreeDays() {
@@ -574,6 +734,8 @@ int main(int argc, char** argv) {
   testCatalog(Storage.root);
   testFreeDays();
   testWholeFolder(Storage.root);
+  testStreamingParserMatchesReference(Storage.root);
+  testLowMemory(Storage.root);
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();

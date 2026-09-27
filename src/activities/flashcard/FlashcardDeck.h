@@ -40,13 +40,20 @@ class FlashcardDeck {
   // Exposed as public static so FlashcardCard member functions can use it.
   static std::string decodeNewlines(const std::string& raw);
 
-  // Load deck from a CSV file on SD card. Returns false on parse failure.
+  // Load a deck from a CSV on the SD card, streaming (the file is never held
+  // whole in RAM). False on a read error, an empty file, or when the cards
+  // would not fit in the free heap with FLASHCARD_HEAP_RESERVE to spare
+  // (outOfMemory() then) — never an abort.
   bool loadFromCsv(const char* path);
+  bool outOfMemory() const { return oom; }
 
-  // Every card of several decks as one in-memory deck (Linear "whole folder").
-  // Read-only: saveToCsv() refuses it. Stops at MAX_CARDS_PER_DECK (isTruncated()).
-  // False when none of the decks could be loaded.
-  bool loadMerged(const std::vector<std::string>& paths, const std::string& displayName, const std::string& mergedPath);
+  // Card counts of a deck without keeping any card in RAM (lists, stats).
+  // Same results as loadFromCsv() + getStats(today); truncated when the CSV has
+  // more than MAX_CARDS_PER_DECK cards. False on a read error.
+  static bool scanStats(const char* path, uint32_t today, DeckStats& out, bool& truncated);
+
+  // "my_deck.csv" -> "my deck" for a full path.
+  static std::string displayNameForPath(const std::string& path);
 
   // Atomically write deck to CSV: write to .tmp, remove original, rename.
   // Refuses to write a truncated deck (would drop the cards past the limit).
@@ -98,13 +105,10 @@ class FlashcardDeck {
 
  private:
   bool truncated = false;
-  bool merged = false;  // built by loadMerged(): never written back
+  bool oom = false;
   std::string name;
   std::string filePath;
   std::vector<FlashcardCard> cards;
-
-  // Parse one CSV field starting at *ptr, advance ptr past the field separator.
-  static std::string parseCsvField(const char*& ptr);
 
   // Append field to out, quoting if necessary for CSV compliance.
   static void writeCsvField(std::string& out, const std::string& field);

@@ -10,8 +10,12 @@
 class FlashcardDoneActivity final : public Activity {
  public:
   FlashcardDoneActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                        const std::array<uint16_t, 4>& ratingCounts, const FlashcardNextDeck& next)
-      : Activity("FlashcardDone", renderer, mappedInput), ratingCounts(ratingCounts), next(next) {}
+                        const std::array<uint16_t, 4>& ratingCounts, const FlashcardNextDeck& next,
+                        bool deckNotLoaded = false)
+      : Activity("FlashcardDone", renderer, mappedInput),
+        ratingCounts(ratingCounts),
+        next(next),
+        deckNotLoaded(deckNotLoaded) {}
 
   void onEnter() override;
   void loop() override;
@@ -20,4 +24,5 @@ class FlashcardDoneActivity final : public Activity {
  private:
   std::array<uint16_t, 4> ratingCounts;
   FlashcardNextDeck next;
+  bool deckNotLoaded;  // the deck could not be read (e.g. not enough memory)
 };

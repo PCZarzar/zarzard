@@ -19,17 +19,15 @@ std::vector<std::string> allDecks() {
 }
 
 bool load(const std::string& path, const uint32_t today, Entry& out) {
-  FlashcardDeck deck;
-  if (!deck.loadFromCsv(path.c_str())) return false;
+  // Counts only: no card is kept in RAM, whatever the deck size.
+  if (!FlashcardDeck::scanStats(path.c_str(), today, out.stats, out.truncated)) return false;
   out.path = path;
-  out.name = deck.getName();
+  out.name = FlashcardDeck::displayNameForPath(path);
   const std::string prefix = std::string(FLASHCARD_DIR) + "/";
   const size_t slash = path.rfind('/');
   out.folder = (slash != std::string::npos && slash > prefix.size() - 1)
                    ? path.substr(prefix.size(), slash - prefix.size())
                    : std::string();
-  out.stats = deck.getStats(today);
-  out.truncated = deck.isTruncated();
   return true;
 }
 

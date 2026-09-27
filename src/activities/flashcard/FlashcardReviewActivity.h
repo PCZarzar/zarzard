@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "FlashcardDeck.h"
+#include "FlashcardFolderIndex.h"
 #include "FlashcardLinearSession.h"
 #include "FlashcardSrs.h"
 #include "activities/Activity.h"
@@ -56,6 +57,12 @@ class FlashcardReviewActivity final : public Activity {
   void buildSummaryOptions();
   void finishWithNextDeck();
   void saveLinearProgress();
+  size_t linearDeckSize() const;
+  uint32_t linearFingerprint() const;
+  // Makes the card on screen available (a whole folder reads it from the SD
+  // card); called from loop(), never from render().
+  void prepareLinearCard();
+  const std::string& displayName() const;
   void renderCard(const FlashcardCard& card);
   void renderSummary();
 
@@ -66,6 +73,12 @@ class FlashcardReviewActivity final : public Activity {
   bool resumeLinear;
   FlashcardNextDeckProvider nextDeckProvider;
   bool deckLoaded = false;
+  bool wholeFolder = false;          // deckPath ends in '/': Linear over a folder index
+  FlashcardFolderIndex folderIndex;  // whole folder: where each card is on the SD card
+  std::string folderName;
+  FlashcardCard folderCard;  // whole folder: the card on screen
+  size_t folderCardIndex = SIZE_MAX;
+  bool folderCardOk = false;
 
   // Spaced mode
   std::vector<size_t> reviewQueue;

@@ -40,6 +40,8 @@ class HalFile {
     return (size_t)sz;
   }
   size_t fileSize() { return size(); }
+  bool seek(size_t pos) { return fp && fseek(fp, (long)pos, SEEK_SET) == 0; }
+  size_t position() const { return fp ? (size_t)ftell(fp) : 0; }
   bool close() {
     if (fp) fclose(fp);
     fp = nullptr;
