@@ -7,12 +7,14 @@
 struct Rect;
 
 // Drawing pieces of the statistics screens: bar charts, stacked bars, number
-// tiles. Black and dithered gray only, which stay crisp on e-ink.
+// tiles. Pure black and white only: black, sparse dots or empty (no gray).
 namespace FlashcardChart {
+
+enum class Fill : uint8_t { Black, Dots, White };
 
 struct Bar {
   uint32_t base = 0;            // black part (bottom)
-  uint32_t top = 0;             // gray part stacked on it
+  uint32_t top = 0;             // dotted part stacked on it
   const char* label = nullptr;  // under the bar; nullptr = none
   bool mark = false;            // highlighted (e.g. today): label in bold, marker under it
 };
@@ -23,7 +25,7 @@ void drawBars(const GfxRenderer& renderer, const Rect& area, const Bar* bars, in
 
 struct Segment {
   uint32_t value = 0;
-  Color color = Color::Black;  // White segments get an outline
+  Fill fill = Fill::Black;
 };
 
 // Horizontal bar split in proportion to the segments, with a frame.
@@ -40,7 +42,12 @@ int tileHeight(const GfxRenderer& renderer, bool sublabel);
 void drawArrow(const GfxRenderer& renderer, int cx, int cy, int size, bool left);
 
 // Small legend square followed by its text; returns the x after it.
-int drawLegend(const GfxRenderer& renderer, int x, int y, Color color, const char* text);
+int drawLegend(const GfxRenderer& renderer, int x, int y, Fill fill, const char* text);
+
+// One labelled horizontal black bar per value, scaled to the largest, with the
+// value after it. Returns the height used.
+int drawHBars(const GfxRenderer& renderer, int x, int y, int w, const char* const* labels, const uint32_t* values,
+              int count);
 
 // "0 min", "25 min", "2h05".
 std::string formatDuration(uint32_t seconds);

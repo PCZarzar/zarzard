@@ -9,12 +9,15 @@
 namespace FlashcardChart {
 
 namespace {
-void fillColor(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const Color color) {
+void fill(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const Fill f) {
   if (w <= 0 || h <= 0) return;
-  if (color == Color::Black) {
+  if (f == Fill::Black) {
     renderer.fillRect(x, y, w, h, true);
-  } else if (color != Color::White && color != Color::Clear) {
-    renderer.fillRectDither(x, y, w, h, color);
+  } else if (f == Fill::Dots) {
+    // Sparse dots on a 3-pixel grid (screen coordinates, so neighbours line up).
+    for (int py = y + ((3 - y % 3) % 3); py < y + h; py += 3) {
+      for (int px = x + ((3 - x % 3) % 3); px < x + w; px += 3) renderer.drawPixel(px, py, true);
+    }
   }
 }
 }  // namespace
@@ -55,7 +58,7 @@ void drawBars(const GfxRenderer& renderer, const Rect& area, const Bar* bars, co
       const int hb = static_cast<int>(static_cast<uint64_t>(h) * b.base / total);
       renderer.fillRect(bx, baseY - hb, barW, hb, true);
       if (h > hb) {
-        renderer.fillRectDither(bx, baseY - h, barW, h - hb, Color::DarkGray);
+        fill(renderer, bx, baseY - h, barW, h - hb, Fill::Dots);
         renderer.drawRect(bx, baseY - h, barW, h - hb, true);
       }
       if (valuesOnTop) {
@@ -87,7 +90,7 @@ void drawStacked(const GfxRenderer& renderer, const int x, const int y, const in
       if (segments[i].value == 0) continue;
       acc += segments[i].value;
       const int nx = x + static_cast<int>(acc * static_cast<uint64_t>(w) / sum);
-      fillColor(renderer, cx, y, nx - cx, h, segments[i].color);
+      fill(renderer, cx, y, nx - cx, h, segments[i].fill);
       if (cx > x) renderer.drawLine(cx, y, cx, y + h - 1, true);
       cx = nx;
     }
@@ -127,14 +130,39 @@ void drawArrow(const GfxRenderer& renderer, const int cx, const int cy, const in
   renderer.fillPolygon(xs, ys, 3, true);
 }
 
-int drawLegend(const GfxRenderer& renderer, const int x, const int y, const Color color, const char* text) {
+int drawLegend(const GfxRenderer& renderer, const int x, const int y, const Fill f, const char* text) {
   const int lineH = renderer.getLineHeight(SMALL_FONT_ID);
-  const int box = std::max(8, lineH / 2);
+  const int box = std::max(9, lineH / 2);
   const int by = y + (lineH - box) / 2;
-  fillColor(renderer, x, by, box, box, color);
+  fill(renderer, x, by, box, box, f);
   renderer.drawRect(x, by, box, box, true);
   renderer.drawText(SMALL_FONT_ID, x + box + 5, y, text);
   return x + box + 5 + renderer.getTextWidth(SMALL_FONT_ID, text) + 14;
+}
+
+int drawHBars(const GfxRenderer& renderer, const int x, const int y, const int w, const char* const* labels,
+              const uint32_t* values, const int count) {
+  const int lineH = renderer.getLineHeight(SMALL_FONT_ID);
+  int labelW = 0;
+  uint32_t maxV = 0;
+  for (int i = 0; i < count; ++i) {
+    labelW = std::max(labelW, renderer.getTextWidth(SMALL_FONT_ID, labels[i]));
+    maxV = std::max(maxV, values[i]);
+  }
+  constexpr int valueW = 48;
+  const int barX = x + labelW + 8;
+  const int barMax = std::max(10, w - labelW - 8 - valueW);
+  char buf[12];
+  for (int i = 0; i < count; ++i) {
+    const int ry = y + i * lineH;
+    renderer.drawText(SMALL_FONT_ID, x, ry, labels[i]);
+    const int bw = maxV ? static_cast<int>(static_cast<uint64_t>(values[i]) * barMax / maxV) : 0;
+    const int bh = std::max(6, lineH - 8);
+    if (bw > 0) renderer.fillRect(barX, ry + (lineH - bh) / 2, std::max(bw, 2), bh, true);
+    snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(values[i]));
+    renderer.drawText(SMALL_FONT_ID, barX + std::max(bw, 2) + 6, ry, buf);
+  }
+  return lineH * count;
 }
 
 std::string formatDuration(const uint32_t seconds) {

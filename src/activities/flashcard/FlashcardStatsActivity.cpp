@@ -88,11 +88,11 @@ const char* periodName(const int p) {
 const char* scaleName(const Scale s) {
   switch (s) {
     case Scale::Days:
-      return tr(STR_FLASHCARD_DAYS);
+      return tr(STR_FLASHCARD_SCALE_DAYS);
     case Scale::Weeks:
-      return tr(STR_FLASHCARD_WEEK);
+      return tr(STR_FLASHCARD_SCALE_WEEKS);
     default:
-      return tr(STR_FLASHCARD_MONTH);
+      return tr(STR_FLASHCARD_SCALE_MONTHS);
   }
 }
 
@@ -443,32 +443,32 @@ void FlashcardStatsActivity::renderPanel(const int top, const int bottom) {
 
     const FlashcardDayRecord s = FlashcardPeriods::sum(recent, from, to);
 
-    // Big number: "310 cards"
+    // Big number with the study time: "310 cards · 2h05"
     const int bigFont = NOTOSERIF_24_FONT_ID;
     const int bigH = renderer.getLineHeight(bigFont);
     snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(s.cards()));
-    const char* unit = tr(STR_FLASHCARD_CARDS);
+    const std::string unit =
+        std::string(tr(STR_FLASHCARD_CARDS)) + " \xC2\xB7 " + FlashcardChart::formatDuration(s.seconds());
     const int numW = renderer.getTextWidth(bigFont, buf, EpdFontFamily::BOLD);
-    const int unitW = renderer.getTextWidth(UI_12_FONT_ID, unit);
-    const int x0 = (pageWidth - numW - 8 - unitW) / 2;
+    const int unitW = renderer.getTextWidth(UI_12_FONT_ID, unit.c_str());
+    const int x0 = (pageWidth - numW - 10 - unitW) / 2;
     renderer.drawText(bigFont, x0, y, buf, true, EpdFontFamily::BOLD);
-    renderer.drawText(UI_12_FONT_ID, x0 + numW + 8, y + bigH - uiH - 4, unit);
+    // Same baseline as the number
+    const int unitY = y + renderer.getFontAscenderSize(bigFont) - renderer.getFontAscenderSize(UI_12_FONT_ID);
+    renderer.drawText(UI_12_FONT_ID, x0 + numW + 10, unitY, unit.c_str());
     y += bigH;
 
-    const std::string time = std::string(tr(STR_FLASHCARD_TIME)) + ": " + FlashcardChart::formatDuration(s.seconds());
-    centeredText(renderer, UI_10_FONT_ID, y, time.c_str());
-    y += renderer.getLineHeight(UI_10_FONT_ID) + 6;
-
     // Spaced / Linear split
-    const FlashcardChart::Segment split[2] = {{s.spaced(), Color::Black}, {s.linearCards, Color::DarkGray}};
+    const FlashcardChart::Segment split[2] = {{s.spaced(), FlashcardChart::Fill::Black},
+                                              {s.linearCards, FlashcardChart::Fill::Dots}};
     FlashcardChart::drawStacked(renderer, side, y, innerW, 16, split, 2);
     y += 16 + 6;
     const std::string l1 = std::string(tr(STR_FLASHCARD_SPACED_SHORT)) + " " + std::to_string(s.spaced());
     const std::string l2 = std::string(tr(STR_FLASHCARD_LINEAR_SHORT)) + " " + std::to_string(s.linearCards);
     const int legendW = legendWidth(renderer, l1.c_str()) + legendWidth(renderer, l2.c_str()) - 14;
     int lx = (pageWidth - legendW) / 2;
-    lx = FlashcardChart::drawLegend(renderer, lx, y, Color::Black, l1.c_str());
-    FlashcardChart::drawLegend(renderer, lx, y, Color::DarkGray, l2.c_str());
+    lx = FlashcardChart::drawLegend(renderer, lx, y, FlashcardChart::Fill::Black, l1.c_str());
+    FlashcardChart::drawLegend(renderer, lx, y, FlashcardChart::Fill::Dots, l2.c_str());
     y += smallH + 10;
 
     // Tiles: streak, new cards and retention (Spaced)
@@ -607,8 +607,8 @@ void FlashcardStatsActivity::renderHistory(const int top, const int bottom) {
   const std::string l2 = tr(STR_FLASHCARD_LINEAR_SHORT);
   const int legendW = legendWidth(renderer, l1.c_str()) + legendWidth(renderer, l2.c_str()) - 14;
   int lx = (pageWidth - legendW) / 2;
-  lx = FlashcardChart::drawLegend(renderer, lx, y, Color::Black, l1.c_str());
-  FlashcardChart::drawLegend(renderer, lx, y, Color::DarkGray, l2.c_str());
+  lx = FlashcardChart::drawLegend(renderer, lx, y, FlashcardChart::Fill::Black, l1.c_str());
+  FlashcardChart::drawLegend(renderer, lx, y, FlashcardChart::Fill::Dots, l2.c_str());
   y += smallH + 10;
 
   // Tiles: cards, time, cards per day
@@ -624,20 +624,12 @@ void FlashcardStatsActivity::renderHistory(const int top, const int bottom) {
   FlashcardChart::drawTile(renderer, Rect{side + (tileW + GAP) * 2, y, tileW, tileH}, value, tr(STR_FLASHCARD_PER_DAY));
   y += tileH + 10;
 
-  if (y + 16 + smallH * 3 > bottom) return;
-  // Spaced ratings
-  const FlashcardChart::Segment ratings[4] = {{total.again, Color::Black},
-                                              {total.hard, Color::DarkGray},
-                                              {total.good, Color::LightGray},
-                                              {total.easy, Color::White}};
-  FlashcardChart::drawStacked(renderer, side, y, innerW, 14, ratings, 4);
-  y += 14 + 4;
-  snprintf(buf, sizeof(buf), "%s %u \xC2\xB7 %s %u \xC2\xB7 %s %u \xC2\xB7 %s %u", tr(STR_FLASHCARD_AGAIN),
-           static_cast<unsigned>(total.again), tr(STR_FLASHCARD_HARD), static_cast<unsigned>(total.hard),
-           tr(STR_FLASHCARD_GOOD), static_cast<unsigned>(total.good), tr(STR_FLASHCARD_EASY),
-           static_cast<unsigned>(total.easy));
-  centeredText(renderer, SMALL_FONT_ID, y, buf);
-  y += smallH + 2;
+  // Spaced ratings: one black bar per button
+  if (y + smallH * 6 > bottom) return;
+  const char* ratingNames[4] = {tr(STR_FLASHCARD_AGAIN), tr(STR_FLASHCARD_HARD), tr(STR_FLASHCARD_GOOD),
+                                tr(STR_FLASHCARD_EASY)};
+  const uint32_t ratingValues[4] = {total.again, total.hard, total.good, total.easy};
+  y += FlashcardChart::drawHBars(renderer, side, y, innerW, ratingNames, ratingValues, 4) + 6;
   const std::string ret = pctText(FlashcardPeriods::percent(total.reviewCorrect, total.reviewCards));
   snprintf(buf, sizeof(buf), "%s %u \xC2\xB7 %s %u \xC2\xB7 %s %s", tr(STR_FLASHCARD_SPACED_SHORT),
            static_cast<unsigned>(total.spaced()), tr(STR_FLASHCARD_NEW_LC), static_cast<unsigned>(total.newCards),
@@ -710,9 +702,9 @@ void FlashcardStatsActivity::renderDecks(const int top, const int bottom) {
 
   // Legend
   int lx = side;
-  lx = FlashcardChart::drawLegend(renderer, lx, top, Color::Black, tr(STR_FLASHCARD_MATURE));
-  lx = FlashcardChart::drawLegend(renderer, lx, top, Color::DarkGray, tr(STR_FLASHCARD_LEARNING));
-  FlashcardChart::drawLegend(renderer, lx, top, Color::White, tr(STR_FLASHCARD_NEW_LC));
+  lx = FlashcardChart::drawLegend(renderer, lx, top, FlashcardChart::Fill::Black, tr(STR_FLASHCARD_MATURE));
+  lx = FlashcardChart::drawLegend(renderer, lx, top, FlashcardChart::Fill::Dots, tr(STR_FLASHCARD_LEARNING));
+  FlashcardChart::drawLegend(renderer, lx, top, FlashcardChart::Fill::White, tr(STR_FLASHCARD_NEW_LC));
   const int listTop = top + smallH + 8;
 
   constexpr int barH = 12;
@@ -737,8 +729,9 @@ void FlashcardStatsActivity::renderDecks(const int top, const int bottom) {
     renderer.drawText(UI_12_FONT_ID, x, y, name.c_str(), true,
                       i == listIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     int ly = y + uiH + 4;
-    const FlashcardChart::Segment segs[3] = {
-        {d.phases.mature, Color::Black}, {d.phases.learning, Color::DarkGray}, {d.phases.newCards, Color::White}};
+    const FlashcardChart::Segment segs[3] = {{d.phases.mature, FlashcardChart::Fill::Black},
+                                             {d.phases.learning, FlashcardChart::Fill::Dots},
+                                             {d.phases.newCards, FlashcardChart::Fill::White}};
     FlashcardChart::drawStacked(renderer, x, ly, w, barH, segs, 3);
     ly += barH + 4;
     snprintf(buf, sizeof(buf), "%s%s%lu %s \xC2\xB7 %lu %s \xC2\xB7 %lu %s", d.folder.c_str(),
@@ -749,9 +742,9 @@ void FlashcardStatsActivity::renderDecks(const int top, const int bottom) {
     renderer.drawText(SMALL_FONT_ID, x, ly, line.c_str());
     ly += smallH;
     if (d.linearPasses > 0) {
-      snprintf(buf, sizeof(buf), "%s: %s %d%% %s (%u %s)", tr(STR_FLASHCARD_LINEAR_SHORT), tr(STR_FLASHCARD_LAST_PASS),
-               d.lastKnownPct, tr(STR_FLASHCARD_KNOWN_PCT), static_cast<unsigned>(d.linearPasses),
-               tr(STR_FLASHCARD_PASSES));
+      snprintf(buf, sizeof(buf), "%s: %s %d%% %s \xC2\xB7 %s: %u", tr(STR_FLASHCARD_LINEAR_SHORT),
+               tr(STR_FLASHCARD_LAST_PASS), d.lastKnownPct, tr(STR_FLASHCARD_KNOWN_PCT), tr(STR_FLASHCARD_PASSES),
+               static_cast<unsigned>(d.linearPasses));
       line = renderer.truncatedText(SMALL_FONT_ID, buf, w);
       renderer.drawText(SMALL_FONT_ID, x, ly, line.c_str());
     }
@@ -784,7 +777,7 @@ void FlashcardStatsActivity::renderHard(const int top, const int bottom) {
     if (static_cast<int>(i + 1) == listIndex) {
       subs[i + 1] = c.back;
     } else {
-      subs[i + 1] = c.deckName + " \xC2\xB7 " + std::to_string(c.ease) + "%";
+      subs[i + 1] = c.deckName + " \xC2\xB7 " + tr(STR_FLASHCARD_EASE) + " " + std::to_string(c.ease) + "%";
     }
     rows[i + 1].subtitle = subs[i + 1].c_str();
   }
