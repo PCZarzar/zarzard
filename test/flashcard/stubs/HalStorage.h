@@ -5,19 +5,24 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
 
+// Like the firmware, a HalFile that was never given to an open call has no
+// implementation: any call on it (close() included) is a fatal assert there,
+// so the stub aborts too.
 class HalFile {
  public:
   HalFile() = default;
-  ~HalFile() { close(); }
+  ~HalFile() { release(); }
   HalFile(HalFile&& o) noexcept { *this = std::move(o); }
   HalFile& operator=(HalFile&& o) noexcept {
     if (this != &o) {
-      close();
+      release();
+      hasImpl = std::exchange(o.hasImpl, false);
       fp = std::exchange(o.fp, nullptr);
       isDir = std::exchange(o.isDir, false);
       name = std::move(o.name);
@@ -32,6 +37,7 @@ class HalFile {
 
   operator bool() const { return fp != nullptr || isDir; }
   size_t size() {
+    requireImpl();
     if (!fp) return 0;
     long cur = ftell(fp);
     fseek(fp, 0, SEEK_END);
@@ -40,17 +46,28 @@ class HalFile {
     return (size_t)sz;
   }
   size_t fileSize() { return size(); }
-  bool seek(size_t pos) { return fp && fseek(fp, (long)pos, SEEK_SET) == 0; }
-  size_t position() const { return fp ? (size_t)ftell(fp) : 0; }
+  bool seek(size_t pos) {
+    requireImpl();
+    return fp && fseek(fp, (long)pos, SEEK_SET) == 0;
+  }
+  size_t position() const {
+    requireImpl();
+    return fp ? (size_t)ftell(fp) : 0;
+  }
   bool close() {
-    if (fp) fclose(fp);
-    fp = nullptr;
-    isDir = false;
+    requireImpl();
+    release();
     return true;
   }
-  size_t write(const uint8_t* d, size_t n) { return fp ? fwrite(d, 1, n, fp) : 0; }
+  size_t write(const uint8_t* d, size_t n) {
+    requireImpl();
+    return fp ? fwrite(d, 1, n, fp) : 0;
+  }
   size_t write(const void* d, size_t n) { return write(static_cast<const uint8_t*>(d), n); }
-  int read(void* d, size_t n) { return fp ? (int)fread(d, 1, n, fp) : -1; }
+  int read(void* d, size_t n) {
+    requireImpl();
+    return fp ? (int)fread(d, 1, n, fp) : -1;
+  }
   int available() {
     if (!fp) return 0;
     int c = fgetc(fp);
@@ -69,6 +86,19 @@ class HalFile {
     return name.size();
   }
 
+  void requireImpl() const {
+    if (!hasImpl) {
+      fprintf(stderr, "FATAL: HalFile used without an open call (firmware asserts impl != nullptr)\n");
+      abort();
+    }
+  }
+  void release() {
+    if (fp) fclose(fp);
+    fp = nullptr;
+    isDir = false;
+  }
+
+  bool hasImpl = false;  // set by every open call, even a failed one (as in the firmware)
   FILE* fp = nullptr;
   bool isDir = false;
   std::string name;
@@ -87,13 +117,15 @@ class HalStorage {
   std::string host(const char* p) const { return root + p; }
 
   bool openFileForRead(const char*, const char* path, HalFile& f) {
-    f.close();
+    f.release();
+    f.hasImpl = true;
     f.fp = fopen(host(path).c_str(), "rb");
     return f.fp != nullptr;
   }
   bool openFileForRead(const char* m, const std::string& p, HalFile& f) { return openFileForRead(m, p.c_str(), f); }
   bool openFileForWrite(const char*, const char* path, HalFile& f) {
-    f.close();
+    f.release();
+    f.hasImpl = true;
     f.fp = fopen(host(path).c_str(), "wb");
     return f.fp != nullptr;
   }
@@ -120,6 +152,7 @@ class HalStorage {
   }
   HalFile open(const char* path) {
     HalFile d;
+    d.hasImpl = true;
     std::error_code ec;
     if (!std::filesystem::is_directory(host(path), ec)) return d;
     d.isDir = true;
@@ -133,7 +166,9 @@ class HalStorage {
 };
 
 inline HalFile HalFile::openNextFile() {
+  requireImpl();
   HalFile e;
+  e.hasImpl = true;
   if (dirPos >= entries.size()) return e;
   e.name = entries[dirPos];
   e.isDir = entryIsDir[dirPos];

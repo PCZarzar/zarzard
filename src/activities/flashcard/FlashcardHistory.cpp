@@ -233,7 +233,7 @@ bool flush() {
   encode(current, buf);
   ok = ok && out.write(buf, RECORD_BYTES) == RECORD_BYTES;
   out.close();
-  in.close();
+  if (in) in.close();  // before replacing the file; never opened when there was no history yet
   if (!ok) {
     LOG_ERR(TAG, "Write failed, keeping the old history");
     Storage.remove(TMP_PATH);
