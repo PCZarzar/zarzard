@@ -51,8 +51,8 @@ void FlashcardDoneActivity::render(RenderLock&&) {
       lineH10 + metrics.verticalSpacing * 2 + lineH10 + 4 + lineH12 + metrics.verticalSpacing * 3 + lineH12;
   int y = contentTop + std::max(0, (contentHeight - blockH) / 2);
 
-  const std::string msg = renderer.truncatedText(
-      UI_10_FONT_ID, deckNotLoaded ? tr(STR_FLASHCARD_NOT_LOADED) : tr(STR_FLASHCARD_DONE_MSG), contentW);
+  const std::string msg =
+      renderer.truncatedText(UI_10_FONT_ID, message ? message : tr(STR_FLASHCARD_DONE_MSG), contentW);
   renderer.drawCenteredText(UI_10_FONT_ID, y, msg.c_str());
   y += lineH10 + metrics.verticalSpacing * 2;
 

@@ -6,14 +6,16 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
-// Linear review: folders of /flashcard (one level) and their decks. Inside a
-// folder the first row studies the whole folder as one fully shuffled pass.
+// Linear review: the difficult cards of every deck, then folders of /flashcard
+// (one level) and their decks. Inside a folder the first row studies the whole
+// folder as one fully shuffled pass.
 // Decks (and whole folders) with a saved pass offer Continue / Restart.
 // "Next deck" at the end of a deck's pass moves to the next deck of the folder.
 class FlashcardLinearBrowserActivity final : public Activity {
   struct Item {
     bool isFolder = false;
     bool isWholeFolder = false;  // every deck of the current folder, shuffled
+    bool isHard = false;         // the difficult cards of every deck
     uint32_t folderCards = 0;    // whole folder: cards in all its decks
     std::string name;            // folder name or deck display name
     std::string path;            // deck path

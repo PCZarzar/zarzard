@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 
+#include "FlashcardSrs.h"
+
 class HalFile;
 
 // Streaming reader for flashcard CSVs: reads the file through a small buffer
@@ -18,6 +20,9 @@ class FlashcardCsvReader {
   struct Record {
     std::string id, front, back, due, interval, ease;
     uint32_t offset = 0;  // file position where the record starts
+
+    // SRS columns: all three present (ease clamped to 130..400), else a new card.
+    SrsState srs() const;
   };
 
   // Reads `file` from its current position; `startOffset` is that position.

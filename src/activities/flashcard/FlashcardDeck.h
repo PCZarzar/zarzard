@@ -81,12 +81,6 @@ class FlashcardDeck {
   // counter is left untouched and newPerDay is returned (per-open limit).
   static uint16_t newCardsAvailable(uint8_t newPerDay, uint16_t& todayCount, uint32_t& todayDate, uint32_t today);
 
-  // Spaced round: index of the next deck after `from` in list order
-  // (wrapping), skipping visited decks, that has due cards or new cards
-  // allowed by newQuota. -1 if none ("All caught up").
-  static int nextSpacedDeck(const std::vector<DeckStats>& stats, const std::vector<bool>& visited, int from,
-                            uint16_t newQuota);
-
   // Cards a Spaced session of a deck with these stats would show.
   static uint16_t spacedSessionSize(const DeckStats& stats, uint16_t newQuota, uint16_t maxReview);
 

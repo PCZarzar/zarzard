@@ -122,7 +122,7 @@ Test deck `test/decks/lpic_test.csv`:
   lighter. To clear ghosting on demand use CrossPoint's *Short Power Button →
   Refresh*.
 - **Folders and two entry points (user request, 2026-09-26).** Flashcards opens on
-  *Spaced review* / *Linear review* / *Settings* (the per-deck mode screen is gone).
+  *Spaced review* / *Linear review* / *Statistics* / *Settings* (the per-deck mode screen is gone).
   Decks may sit in `/flashcard/*.csv` or one folder level `/flashcard/<folder>/*.csv`
   (folders are created from a PC or CrossPoint's WiFi file transfer; hidden files
   and folders such as macOS `._x.csv` are ignored).
@@ -136,12 +136,17 @@ Test deck `test/decks/lpic_test.csv`:
   pass is not found any more (the CSV itself is unaffected).
 - **Whole folder, shuffled (Linear).** Inside a folder the first row studies every
   card of its decks as one pass, always fully shuffled (each new pass reshuffles,
-  whatever the Shuffle setting). The decks are merged in RAM by
-  `FlashcardDeck::loadMerged` (read-only: `saveToCsv` refuses it; the CSVs are never
-  touched), capped at 500 cards like a single deck — beyond that the first 500 in
-  file order are used and the row shows "N cards (of M)". The folder pass has its
-  own saved progress (Continue / Restart), keyed by the folder path and a
-  fingerprint of the merged cards. No "Next deck" after a whole-folder pass.
+  whatever the Shuffle setting). `FlashcardFolderIndex` keeps only each card's file
+  offset (6 bytes per card, up to 3000 cards) and reads the card on screen from the
+  SD card; the CSVs are never written. The folder pass has its own saved progress
+  (Continue / Restart), keyed by the folder path and a fingerprint of the cards.
+  No "Next deck" after a whole-folder pass.
+- **Streaming CSV reader (fix for large decks, 2026-09-27).** Decks of ~300 cards
+  (50 KB) aborted in `operator new`: every deck was read whole into RAM to build the
+  lists. `FlashcardCsvReader` parses from the SD card in 512-byte chunks with the
+  original parser's rules (host tests compare both on 1500 random files); lists only
+  count cards (`FlashcardDeck::scanStats`); a deck is loaded only when the free heap
+  holds it with 24 KB to spare, otherwise "could not be loaded" instead of a crash.
 - **Free days (Anki "Easy Days" idea, user request).** *Settings → Free days* marks
   weekdays with no study (`FlashcardStore::freeDaysMask`, bit 0 = Sunday; all seven is
   refused). After SM-2 computes a card's next state (unchanged), a due date on a free
@@ -149,6 +154,32 @@ Test deck `test/decks/lpic_test.csv`:
   interval/3 days earlier when possible (e.g. interval ≥ 3 → Saturday instead of
   Sunday), otherwise later (Monday). Again (due today) is never moved. Cards that were
   already due on a free day before the setting existed show up the next study day.
+- **Spaced review planning (user request, Anki-like).** *Settings → Spaced review*
+  holds the daily new-card **total** (5–100), max reviews per deck session, free days
+  and **Decks**. Each deck has a state — *Active* (new + due), *Reviews only* (due),
+  *Stand-by* (out of the Spaced list; Linear unaffected; the CSV keeps its SRS dates)
+  — and a **share** (1–50, default 5). A deck without a saved choice is Active when
+  any card was studied in Spaced review, Stand-by otherwise, so new decks never
+  flood the list. Once a day `FlashcardPlanner::split` divides the total between
+  Active decks with new cards in proportion to their shares (Sainte-Laguë, ties by a
+  random seed; a deck never gets more than its new cards; the rest goes to the
+  others). A changed choice or total redoes the split the same day, keeping what each
+  deck already used. Choices, the split and the last Linear pass result per deck are
+  in `/.crosspoint/flashcard_decks.json` (`FlashcardDeckOptions`), keyed by path.
+- **Statistics (user request).** A daily log `/.crosspoint/flashcard_history.bin`
+  (`FlashcardHistory`, 28-byte checksummed records, rewritten through a .tmp copy)
+  counts Spaced ratings, new cards, *true retention* (ratings of cards already in
+  review, interval ≥ 1, not Again — new cards and relearning are left out, as in
+  Anki), mature retention, Linear cards and study time (≤ 60 s per card). Linear
+  only adds volume and time, never accuracy. The screen: a panel per Today / Week
+  (Monday first) / Month with total cards, time, Spaced/Linear split, streak (free
+  days without study do not break it), new cards, retention and a small chart;
+  History (bars by days / weeks / months, paging back), Forecast (30 days), Decks
+  (phases new / learning / mature and the last full Linear pass "% known") and
+  Difficult cards (ease ≤ 150%), which can be studied as one Linear session
+  (`FLASHCARD_HARD_KEY`, also the first row of Linear review). History, streak and
+  Linear results start at install; forecast, phases and difficult cards come from the
+  CSVs. Linear cards are only logged while the date is known (synced clock).
 
 ## Final build
 

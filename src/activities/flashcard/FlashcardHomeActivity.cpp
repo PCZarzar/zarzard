@@ -3,9 +3,12 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include "FlashcardDeckOptions.h"
+#include "FlashcardHistory.h"
 #include "FlashcardLinearBrowserActivity.h"
 #include "FlashcardSettingsActivity.h"
 #include "FlashcardSpacedListActivity.h"
+#include "FlashcardStatsActivity.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
 #include "MappedInputManager.h"
@@ -16,13 +19,15 @@
 namespace {
 constexpr int ROW_SPACED = 0;
 constexpr int ROW_LINEAR = 1;
-constexpr int ROW_SETTINGS = 2;
-constexpr int ROW_COUNT = 3;
+constexpr int ROW_STATS = 2;
+constexpr int ROW_SETTINGS = 3;
+constexpr int ROW_COUNT = 4;
 }  // namespace
 
 void FlashcardHomeActivity::onEnter() {
   Activity::onEnter();
   FLASHCARD_STORE.loadFromFile();  // missing file on first use: defaults stay
+  FLASHCARD_DECK_OPTIONS.loadFromFile();
   requestUpdate();
 }
 
@@ -37,6 +42,7 @@ void FlashcardHomeActivity::loop() {
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    FlashcardHistory::flush();
     onGoHome(HomeMenuItem::FLASHCARDS);
     return;
   }
@@ -49,6 +55,9 @@ void FlashcardHomeActivity::loop() {
       break;
     case ROW_LINEAR:
       startActivityForResult(std::make_unique<FlashcardLinearBrowserActivity>(renderer, mappedInput), back);
+      break;
+    case ROW_STATS:
+      startActivityForResult(std::make_unique<FlashcardStatsActivity>(renderer, mappedInput), back);
       break;
     default:
       startActivityForResult(std::make_unique<FlashcardSettingsActivity>(renderer, mappedInput), back);
@@ -69,6 +78,8 @@ void FlashcardHomeActivity::render(RenderLock&&) {
   rows[ROW_SPACED].subtitle = tr(STR_FLASHCARD_SPACED_DESC);
   rows[ROW_LINEAR].title = tr(STR_FLASHCARD_LINEAR);
   rows[ROW_LINEAR].subtitle = tr(STR_FLASHCARD_LINEAR_DESC);
+  rows[ROW_STATS].title = tr(STR_FLASHCARD_STATS);
+  rows[ROW_STATS].subtitle = tr(STR_FLASHCARD_STATS_DESC);
   rows[ROW_SETTINGS].title = tr(STR_FLASHCARD_SETTINGS);
 
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;

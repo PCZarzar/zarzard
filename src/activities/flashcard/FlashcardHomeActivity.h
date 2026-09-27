@@ -3,7 +3,7 @@
 #include "util/ButtonNavigator.h"
 
 // Flashcards entry screen: Spaced review (flat list of every deck), Linear
-// review (folder browser) and Settings.
+// review (folder browser), Statistics and Settings.
 class FlashcardHomeActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;

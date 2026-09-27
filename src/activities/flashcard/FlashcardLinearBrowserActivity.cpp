@@ -10,6 +10,7 @@
 #include "FlashcardCatalog.h"
 #include "FlashcardFolderIndex.h"
 #include "FlashcardLinearProgress.h"
+#include "FlashcardStatsScan.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
 #include "MappedInputManager.h"
@@ -25,6 +26,21 @@ void FlashcardLinearBrowserActivity::onEnter() {
 void FlashcardLinearBrowserActivity::reload() {
   items.clear();
   if (folder.empty()) {
+    // Found when opened (reading every deck here would slow the list down).
+    Item hardItem;
+    hardItem.isHard = true;
+    hardItem.name = tr(STR_FLASHCARD_HARD_CARDS);
+    hardItem.path = FLASHCARD_HARD_KEY;
+    FlashcardLinearProgress::Saved saved;
+    if (FlashcardLinearProgress::load(hardItem.path, saved)) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "%s %u \xC2\xB7 %u/%u", tr(STR_FLASHCARD_PASS),
+               static_cast<unsigned>(saved.state.pass),
+               static_cast<unsigned>(std::min(saved.state.position + 1, saved.state.queue.size())),
+               static_cast<unsigned>(saved.state.queue.size()));
+      hardItem.savedLabel = buf;
+    }
+    items.push_back(std::move(hardItem));
     for (const auto& name : FlashcardDeck::listFolders()) {
       Item it;
       it.isFolder = true;
@@ -87,7 +103,9 @@ void FlashcardLinearBrowserActivity::reload() {
 
 int FlashcardLinearBrowserActivity::findDeck(const std::string& path) const {
   for (size_t i = 0; i < items.size(); ++i) {
-    if (!items[i].isFolder && !items[i].isWholeFolder && items[i].path == path) return static_cast<int>(i);
+    if (!items[i].isFolder && !items[i].isWholeFolder && !items[i].isHard && items[i].path == path) {
+      return static_cast<int>(i);
+    }
   }
   return -1;
 }
@@ -99,11 +117,13 @@ FlashcardNextDeck FlashcardLinearBrowserActivity::resolveNextDeckThunk(void* sel
 // Next readable deck of the same folder, in list order, without wrapping.
 FlashcardNextDeck FlashcardLinearBrowserActivity::resolveNextDeck() {
   FlashcardNextDeck offer;
-  if (!currentPath.empty() && currentPath.back() == '/') return offer;  // whole folder: no next deck
+  if (currentPath == FLASHCARD_HARD_KEY || (!currentPath.empty() && currentPath.back() == '/')) {
+    return offer;  // whole folder or difficult cards: no next deck
+  }
   const int current = findDeck(currentPath);
   if (current < 0) return offer;
   for (size_t i = current + 1; i < items.size(); ++i) {
-    if (!items[i].isFolder && !items[i].isWholeFolder && items[i].loaded) {
+    if (!items[i].isFolder && !items[i].isWholeFolder && !items[i].isHard && items[i].loaded) {
       offer.name = items[i].name;
       offer.cards = items[i].cards;
       return offer;
@@ -126,7 +146,7 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
         const int cur = findDeck(currentPath) >= 0 ? findDeck(currentPath) : current;
         if (wantsNext && cur >= 0) {
           for (size_t i = cur + 1; i < items.size(); ++i) {
-            if (items[i].isFolder || items[i].isWholeFolder || !items[i].loaded) continue;
+            if (items[i].isFolder || items[i].isWholeFolder || items[i].isHard || !items[i].loaded) continue;
             selectedIndex = static_cast<int>(i);
             // A chained deck picks up its own saved pass, if any.
             startReview(selectedIndex, !items[i].savedLabel.empty());
@@ -134,7 +154,10 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
           }
         }
         if (cur >= 0) selectedIndex = cur;
-        if (!currentPath.empty() && currentPath.back() == '/') selectedIndex = 0;  // whole-folder row
+        // Whole-folder and difficult-cards rows are the first row of their list.
+        if (currentPath == FLASHCARD_HARD_KEY || (!currentPath.empty() && currentPath.back() == '/')) {
+          selectedIndex = 0;
+        }
         requestUpdate();
       });
 }
@@ -245,7 +268,14 @@ void FlashcardLinearBrowserActivity::render(RenderLock&&) {
   for (size_t i = 0; i < items.size(); ++i) {
     const Item& it = items[i];
     char buf[96];
-    if (it.isWholeFolder) {
+    if (it.isHard) {
+      titles[i] = it.name;
+      if (it.savedLabel.empty()) {
+        snprintf(buf, sizeof(buf), "%s", tr(STR_FLASHCARD_HARD_HINT));
+      } else {
+        snprintf(buf, sizeof(buf), "%s %s", tr(STR_FLASHCARD_SAVED), it.savedLabel.c_str());
+      }
+    } else if (it.isWholeFolder) {
       titles[i] = tr(STR_FLASHCARD_WHOLE_FOLDER);
       const int n = snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(it.cards), tr(STR_FLASHCARD_CARDS));
       if (it.folderCards > FlashcardFolderIndex::MAX_CARDS && n > 0 && n < static_cast<int>(sizeof(buf))) {

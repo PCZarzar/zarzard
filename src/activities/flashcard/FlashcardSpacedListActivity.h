@@ -8,8 +8,9 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
-// Spaced review: every deck (all folders) in one list that orders itself —
-// decks with reviews pending first, most due at the top, then "Up to date".
+// Spaced review: every deck not in stand-by (all folders) in one list that
+// orders itself — decks with reviews pending first, most due at the top, then
+// "Up to date". New cards per deck come from today's split of the daily total.
 // "Review all" chains through the pending decks, most due first; a deck is
 // never repeated in a round. Only one deck is loaded in RAM during a session.
 class FlashcardSpacedListActivity final : public Activity {
@@ -24,9 +25,9 @@ class FlashcardSpacedListActivity final : public Activity {
   std::vector<Item> items;
   int selectedIndex = 0;
   uint32_t today = 0;
-  uint16_t newQuota = 0;
-  uint32_t cardsToday = 0;   // due + new allowed today, all decks
-  uint16_t failedDecks = 0;  // CSVs that could not be loaded
+  uint32_t cardsToday = 0;    // due + new allowed today, listed decks
+  uint16_t failedDecks = 0;   // CSVs that could not be loaded
+  uint16_t standbyDecks = 0;  // not listed (Settings > Spaced review > Decks)
   FlashcardClock::State clockState = FlashcardClock::State::Unset;
 
   // Current chained round. Cleared whenever control returns to the list.

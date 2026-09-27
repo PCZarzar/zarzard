@@ -3,6 +3,8 @@
 #include <HalStorage.h>
 #include <Memory.h>
 
+#include <cstdlib>
+
 FlashcardCsvReader::FlashcardCsvReader(HalFile& file, const uint32_t startOffset)
     : file(file), buf(makeUniqueNoThrow<char[]>(BUFFER_SIZE)), bufOffset(startOffset) {
   if (!buf) {
@@ -99,4 +101,16 @@ bool FlashcardCsvReader::next(Record& rec) {
   while ((c = peek()) != '\0' && c != '\n') get();  // anything after the sixth field
   if (peek() == '\n') get();
   return true;
+}
+
+SrsState FlashcardCsvReader::Record::srs() const {
+  SrsState out;
+  if (!due.empty() && !interval.empty() && !ease.empty()) {
+    out.dueDate = FlashcardSrs::parseDateStr(due.c_str());
+    out.interval = (uint16_t)atoi(interval.c_str());
+    out.ease = (uint16_t)atoi(ease.c_str());
+    if (out.ease < 130) out.ease = 130;
+    if (out.ease > 400) out.ease = 400;
+  }
+  return out;
 }

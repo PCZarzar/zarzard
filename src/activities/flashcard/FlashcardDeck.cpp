@@ -132,19 +132,6 @@ void FlashcardDeck::writeCsvField(std::string& out, const std::string& field) {
 // ---------------------------------------------------------------------------
 
 namespace {
-// SRS columns as the original parser read them: all three present, or a new card.
-SrsState srsFromRecord(const FlashcardCsvReader::Record& rec) {
-  SrsState srs;
-  if (!rec.due.empty() && !rec.interval.empty() && !rec.ease.empty()) {
-    srs.dueDate = FlashcardSrs::parseDateStr(rec.due.c_str());
-    srs.interval = (uint16_t)atoi(rec.interval.c_str());
-    srs.ease = (uint16_t)atoi(rec.ease.c_str());
-    if (srs.ease < 130) srs.ease = 130;
-    if (srs.ease > 400) srs.ease = 400;
-  }
-  return srs;
-}
-
 // Counts the records of a CSV (all of them) and checks the whole file was read.
 bool countRecords(const char* path, size_t& count) {
   HalFile file;
@@ -215,7 +202,7 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
     nextId = card.id + 1;
     card.frontContent = std::string(rec.front);
     card.backContent = std::string(rec.back);
-    card.srs = srsFromRecord(rec);
+    card.srs = rec.srs();
     cards.push_back(std::move(card));
   }
   if (reader.failed()) {
@@ -243,7 +230,7 @@ bool FlashcardDeck::scanStats(const char* path, const uint32_t today, DeckStats&
       break;
     }
     ++out.totalCards;
-    const SrsState srs = srsFromRecord(rec);
+    const SrsState srs = rec.srs();
     if (srs.dueDate == 0) {
       ++out.newCards;
     } else if (srs.dueDate <= today) {
@@ -408,17 +395,6 @@ uint16_t FlashcardDeck::newCardsAvailable(uint8_t newPerDay, uint16_t& todayCoun
     todayCount = 0;
   }
   return todayCount >= newPerDay ? 0 : (uint16_t)(newPerDay - todayCount);
-}
-
-int FlashcardDeck::nextSpacedDeck(const std::vector<DeckStats>& stats, const std::vector<bool>& visited, int from,
-                                  uint16_t newQuota) {
-  const int n = static_cast<int>(stats.size());
-  for (int k = 1; k <= n; ++k) {
-    const int i = ((from + k) % n + n) % n;
-    if (i < static_cast<int>(visited.size()) && visited[i]) continue;
-    if (stats[i].dueCards > 0 || (stats[i].newCards > 0 && newQuota > 0)) return i;
-  }
-  return -1;
 }
 
 uint16_t FlashcardDeck::spacedSessionSize(const DeckStats& stats, uint16_t newQuota, uint16_t maxReview) {

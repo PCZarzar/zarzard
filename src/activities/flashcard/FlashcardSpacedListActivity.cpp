@@ -8,6 +8,7 @@
 
 #include "FlashcardClockSync.h"
 #include "FlashcardClockSyncActivity.h"
+#include "FlashcardPlanRefresh.h"
 #include "FlashcardSrs.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
@@ -25,30 +26,39 @@ void FlashcardSpacedListActivity::reload() {
   today = FlashcardSrs::getToday();
   clockState = FlashcardClockSync::state();
 
-  uint16_t count = FLASHCARD_STORE.newTodayCount;  // copies: read-only peek
-  uint32_t date = FLASHCARD_STORE.newTodayDate;
-  newQuota = FlashcardDeck::newCardsAvailable(FLASHCARD_STORE.newPerDay, count, date, today);
-
   decks.clear();
   failedDecks = 0;
+  standbyDecks = 0;
   const auto paths = FlashcardCatalog::allDecks();
-  decks.reserve(paths.size());
-  uint32_t due = 0;
-  uint32_t fresh = 0;
+  std::vector<FlashcardCatalog::Entry> all;
+  all.reserve(paths.size());
   for (const auto& path : paths) {
     FlashcardCatalog::Entry e;
     if (!FlashcardCatalog::load(path, today, e)) {
       ++failedDecks;
       continue;
     }
+    all.push_back(std::move(e));
+  }
+  // Every deck takes part in the split, so shares stay stable whatever is listed.
+  flashcardRefreshPlan(all, today);
+
+  decks.reserve(all.size());
+  uint32_t due = 0;
+  uint32_t fresh = 0;
+  for (auto& e : all) {
+    if (e.state == FlashcardDeckState::StandBy) {
+      ++standbyDecks;
+      continue;
+    }
     if (!e.truncated) {
       due += e.stats.dueCards;
-      fresh += e.stats.newCards;
+      fresh += std::min<uint32_t>(e.stats.newCards, e.newToday);
     }
     decks.push_back(std::move(e));
   }
-  cardsToday = due + std::min<uint32_t>(fresh, newQuota);
-  FlashcardCatalog::sortForSpaced(decks, newQuota);
+  cardsToday = due + fresh;
+  FlashcardCatalog::sortForSpaced(decks);
   buildItems();
 }
 
@@ -60,7 +70,7 @@ void FlashcardSpacedListActivity::buildItems() {
   if (clockState != FlashcardClock::State::Ok) items.push_back({ItemKind::SyncDate});
   bool headerAdded = false;
   for (int i = 0; i < static_cast<int>(decks.size()); ++i) {
-    if (!headerAdded && !FlashcardCatalog::isPending(decks[i], newQuota)) {
+    if (!headerAdded && !FlashcardCatalog::isPending(decks[i])) {
       items.push_back({ItemKind::UpToDateHeader});
       headerAdded = true;
     }
@@ -82,7 +92,7 @@ int FlashcardSpacedListActivity::findDeck(const std::string& path) const {
 // Most due first: the list is sorted, so the first pending unvisited deck.
 int FlashcardSpacedListActivity::firstPendingUnvisited() const {
   for (size_t i = 0; i < decks.size(); ++i) {
-    if (!FlashcardCatalog::isPending(decks[i], newQuota)) continue;
+    if (!FlashcardCatalog::isPending(decks[i])) continue;
     if (std::find(visitedPaths.begin(), visitedPaths.end(), decks[i].path) != visitedPaths.end()) continue;
     return static_cast<int>(i);
   }
@@ -93,21 +103,21 @@ FlashcardNextDeck FlashcardSpacedListActivity::resolveNextDeckThunk(void* self) 
   return static_cast<FlashcardSpacedListActivity*>(self)->resolveNextDeck();
 }
 
-// Called by the review when it ends. The new-card quota may have been used up
-// by the session, so it is read again; decks[] stats are from before the
-// session, which only matters for the current deck — and that one is visited.
+// Called by the review when it ends. The session used some of today's new
+// cards, so each deck's remaining share is read again; decks[] stats are from
+// before the session, which only matters for the current deck — and that one
+// is visited.
 FlashcardNextDeck FlashcardSpacedListActivity::resolveNextDeck() {
   offeredNextPath.clear();
   FlashcardNextDeck offer;
   const uint32_t now = FlashcardSrs::getToday();
   if (now == 0) return offer;
-  uint16_t count = FLASHCARD_STORE.newTodayCount;
-  uint32_t date = FLASHCARD_STORE.newTodayDate;
-  newQuota = FlashcardDeck::newCardsAvailable(FLASHCARD_STORE.newPerDay, count, date, now);
+  for (auto& d : decks) d.newToday = FLASHCARD_DECK_OPTIONS.newRemaining(d.path, now);
   const int next = firstPendingUnvisited();
   if (next < 0) return offer;
   offer.name = decks[next].name;
-  offer.cards = FlashcardDeck::spacedSessionSize(decks[next].stats, newQuota, FLASHCARD_STORE.maxReviewPerDay);
+  offer.cards =
+      FlashcardDeck::spacedSessionSize(decks[next].stats, decks[next].newToday, FLASHCARD_STORE.maxReviewPerDay);
   offeredNextPath = decks[next].path;
   return offer;
 }
@@ -222,13 +232,22 @@ void FlashcardSpacedListActivity::render(RenderLock&&) {
     renderer.drawText(SMALL_FONT_ID, sidePad, y, line);
     y += renderer.getLineHeight(SMALL_FONT_ID);
   }
+  if (standbyDecks > 0) {
+    snprintf(line, sizeof(line), "%u %s %s", static_cast<unsigned>(standbyDecks), tr(STR_FLASHCARD_DECKS),
+             tr(STR_FLASHCARD_IN_STANDBY));
+    renderer.drawText(SMALL_FONT_ID, sidePad, y, line);
+    y += renderer.getLineHeight(SMALL_FONT_ID);
+  }
   y += metrics.verticalSpacing / 2;
 
   const int listH = pageHeight - y - metrics.buttonHintsHeight - metrics.verticalSpacing;
   if (decks.empty()) {
-    renderer.drawCenteredText(UI_12_FONT_ID, y + 10, tr(STR_FLASHCARD_NO_DECKS), true, EpdFontFamily::BOLD);
+    const bool allStandby = standbyDecks > 0;
+    renderer.drawCenteredText(UI_12_FONT_ID, y + 10,
+                              allStandby ? tr(STR_FLASHCARD_NO_ACTIVE) : tr(STR_FLASHCARD_NO_DECKS), true,
+                              EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, y + 10 + renderer.getLineHeight(UI_12_FONT_ID) + 6,
-                              tr(STR_FLASHCARD_IMPORT_HINT));
+                              allStandby ? tr(STR_FLASHCARD_NO_ACTIVE_HINT) : tr(STR_FLASHCARD_IMPORT_HINT));
   }
 
   // Per-row text lives here while drawRows runs.
@@ -260,16 +279,18 @@ void FlashcardSpacedListActivity::render(RenderLock&&) {
           snprintf(buf, sizeof(buf), "%s%s%s", d.folder.c_str(), d.folder.empty() ? "" : " \xC2\xB7 ",
                    tr(STR_FLASHCARD_TOO_MANY_CARDS));
         } else {
-          snprintf(buf, sizeof(buf), "%s%s%s %u \xC2\xB7 %s %u \xC2\xB7 %s %u", d.folder.c_str(),
+          // Due · new today (of the deck's new cards) · total
+          snprintf(buf, sizeof(buf), "%s%s%s %u \xC2\xB7 %s %u/%u \xC2\xB7 %s %u", d.folder.c_str(),
                    d.folder.empty() ? "" : " \xC2\xB7 ", tr(STR_FLASHCARD_DUE), static_cast<unsigned>(d.stats.dueCards),
-                   tr(STR_FLASHCARD_NEW), static_cast<unsigned>(d.stats.newCards), tr(STR_FLASHCARD_TOTAL),
+                   tr(STR_FLASHCARD_NEW), static_cast<unsigned>(std::min(d.newToday, d.stats.newCards)),
+                   static_cast<unsigned>(d.stats.newCards), tr(STR_FLASHCARD_TOTAL),
                    static_cast<unsigned>(d.stats.totalCards));
         }
         subs[i] = buf;
         row.subtitle = subs[i].c_str();
-        if (FlashcardCatalog::isPending(d, newQuota)) {
+        if (FlashcardCatalog::isPending(d)) {
           values[i] =
-              std::to_string(FlashcardDeck::spacedSessionSize(d.stats, newQuota, FLASHCARD_STORE.maxReviewPerDay));
+              std::to_string(FlashcardDeck::spacedSessionSize(d.stats, d.newToday, FLASHCARD_STORE.maxReviewPerDay));
           row.value = values[i].c_str();
         }
         break;

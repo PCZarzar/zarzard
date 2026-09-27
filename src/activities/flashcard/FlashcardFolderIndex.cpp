@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "FlashcardCsv.h"
@@ -65,6 +66,33 @@ bool FlashcardFolderIndex::build(const std::vector<std::string>& deckPaths) {
     }
     if (refs.size() > firstRef) files.push_back(path);
   }
+  return !refs.empty();
+}
+
+bool FlashcardFolderIndex::buildFromRefs(const std::vector<CardRef>& cards) {
+  files.clear();
+  refs.clear();
+  hash = 2166136261u;
+  truncated = false;
+  const size_t n = std::min(cards.size(), MAX_CARDS);
+  refs.reserve(n);
+  FlashcardCard card;
+  for (size_t i = 0; i < n; ++i) {
+    const CardRef& c = cards[i];
+    auto it = std::find(files.begin(), files.end(), c.path);
+    const uint16_t fileIndex = static_cast<uint16_t>(it - files.begin());
+    if (it == files.end()) files.push_back(c.path);
+    refs.push_back(Ref{c.offset, fileIndex});
+    // Checks the position still points at a card (the CSV may have changed).
+    if (!loadCard(refs.size() - 1, card)) {
+      refs.pop_back();
+      continue;
+    }
+    mix(hash, &c.offset, sizeof(c.offset));
+    mix(hash, card.frontContent.c_str(), card.frontContent.size() + 1);
+    mix(hash, card.backContent.c_str(), card.backContent.size() + 1);
+  }
+  truncated = cards.size() > n;
   return !refs.empty();
 }
 

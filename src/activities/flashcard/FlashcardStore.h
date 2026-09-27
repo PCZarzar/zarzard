@@ -12,7 +12,7 @@ class FlashcardStore : public PersistableStore<FlashcardStore> {
 
  public:
   static constexpr uint8_t NEW_PER_DAY_MIN = 5;
-  static constexpr uint8_t NEW_PER_DAY_MAX = 50;
+  static constexpr uint8_t NEW_PER_DAY_MAX = 100;
   static constexpr uint8_t MAX_REVIEW_MIN = 25;
   static constexpr uint8_t MAX_REVIEW_MAX = 250;
   static constexpr int16_t UTC_OFFSET_MIN_MINUTES = -12 * 60;
@@ -22,7 +22,7 @@ class FlashcardStore : public PersistableStore<FlashcardStore> {
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
 
-  uint8_t newPerDay = 10;           // new cards per day, across all decks
+  uint8_t newPerDay = 10;           // new cards per day, all decks together (split by share)
   uint8_t maxReviewPerDay = 250;    // cap per deck session
   uint8_t shuffle = 1;              // linear review: reshuffle each pass
   uint16_t newTodayCount = 0;       // new cards first rated on newTodayDate

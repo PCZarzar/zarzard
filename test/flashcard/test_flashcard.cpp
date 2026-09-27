@@ -16,10 +16,15 @@
 #include "FlashcardCatalog.h"
 #include "FlashcardClock.h"
 #include "FlashcardDeck.h"
+#include "FlashcardDeckOptions.h"
 #include "FlashcardFolderIndex.h"
+#include "FlashcardHistory.h"
 #include "FlashcardLinearSession.h"
 #include "FlashcardMemory.h"
+#include "FlashcardPeriods.h"
+#include "FlashcardPlanner.h"
 #include "FlashcardSrs.h"
+#include "FlashcardStatsScan.h"
 #include "reference_parser.h"
 
 extern size_t g_testLargestFreeBlock;
@@ -207,32 +212,6 @@ static DeckStats st(uint16_t due, uint16_t fresh) {
 }
 
 static void testSpacedRound() {
-  // 0: due, 1: nothing, 2: only new, 3: due+new, 4: only new
-  std::vector<DeckStats> stats = {st(3, 0), st(0, 0), st(0, 5), st(2, 4), st(0, 1)};
-  std::vector<bool> visited(stats.size(), false);
-  // Start manually on deck 3, quota 10: round goes 4, 0, 2 (wraps), then ends
-  int cur = 3;
-  visited[cur] = true;
-  std::vector<int> order;
-  uint16_t quota = 10;
-  for (int guard = 0; guard < 10; ++guard) {
-    const int next = FlashcardDeck::nextSpacedDeck(stats, visited, cur, quota);
-    if (next < 0) break;
-    CHECK_EQ((bool)visited[next], false);  // never repeats a deck
-    order.push_back(next);
-    visited[next] = true;
-    cur = next;
-  }
-  CHECK_EQ(order, (std::vector<int>{4, 0, 2}));                             // deck 1 has nothing → skipped
-  CHECK_EQ(FlashcardDeck::nextSpacedDeck(stats, visited, cur, quota), -1);  // All caught up
-
-  // Quota exhausted: decks with only new cards no longer qualify
-  std::vector<bool> fresh(stats.size(), false);
-  fresh[0] = true;
-  CHECK_EQ(FlashcardDeck::nextSpacedDeck(stats, fresh, 0, 0), 3);
-  fresh[3] = true;
-  CHECK_EQ(FlashcardDeck::nextSpacedDeck(stats, fresh, 3, 0), -1);
-
   // N = due + new allowed, capped by max reviews
   CHECK_EQ(FlashcardDeck::spacedSessionSize(st(2, 4), 3, 250), (uint16_t)5);
   CHECK_EQ(FlashcardDeck::spacedSessionSize(st(2, 4), 0, 250), (uint16_t)2);
@@ -459,22 +438,37 @@ static void testCatalog(const std::string& root) {
   CHECK_EQ(entries[1].name, std::string("103.1 comandos"));
   CHECK_EQ(entries[1].stats.dueCards, (uint16_t)5);
 
-  // With new-card quota: most due first (5, 2), then new-only decks by most new (4, 3)
+  // With new cards left in their share: most due first (5, 2), then new-only decks by most new (4, 3)
   auto sorted = entries;
-  FlashcardCatalog::sortForSpaced(sorted, 10);
+  for (auto& e : sorted) e.newToday = 10;
+  FlashcardCatalog::sortForSpaced(sorted);
   std::vector<std::string> names;
   for (const auto& e : sorted) names.push_back(e.name);
   CHECK_EQ(names, (std::vector<std::string>{"103.1 comandos", "104.2 filesystems", "105 shell", "avulso"}));
-  // Quota used up: new-only decks are up to date and go below, by name
+  // Share used up: new-only decks are up to date and go below, by name
   sorted = entries;
-  FlashcardCatalog::sortForSpaced(sorted, 0);
-  CHECK_EQ(FlashcardCatalog::isPending(sorted[2], 0), false);
+  FlashcardCatalog::sortForSpaced(sorted);
+  CHECK_EQ(FlashcardCatalog::isPending(sorted[2]), false);
   CHECK_EQ(sorted[2].name, std::string("105 shell"));
   CHECK_EQ(sorted[3].name, std::string("avulso"));
   // Decks over the card limit are never pending
   FlashcardCatalog::Entry big = entries[1];
   big.truncated = true;
-  CHECK_EQ(FlashcardCatalog::isPending(big, 10), false);
+  big.newToday = 10;
+  CHECK_EQ(FlashcardCatalog::isPending(big), false);
+  // Stand-by decks are never pending; Reviews only still has its due cards
+  FlashcardCatalog::Entry parked = entries[1];
+  parked.state = FlashcardDeckState::StandBy;
+  CHECK_EQ(FlashcardCatalog::isPending(parked), false);
+  parked.state = FlashcardDeckState::ReviewsOnly;
+  CHECK_EQ(FlashcardCatalog::isPending(parked), true);
+  // describe() gives name and folder from the path alone
+  FlashcardCatalog::Entry d;
+  FlashcardCatalog::describe("/flashcard/LPIC 102/105 shell.csv", d);
+  CHECK_EQ(d.name, std::string("105 shell"));
+  CHECK_EQ(d.folder, std::string("LPIC 102"));
+  FlashcardCatalog::describe("/flashcard/avulso.csv", d);
+  CHECK_EQ(d.folder, std::string(""));
   fs::remove_all(fc);
 }
 
@@ -726,6 +720,569 @@ static void testFreeDays() {
   }
 }
 
+// ─── Spaced planning ─────────────────────────────────────────────────────────
+
+static FlashcardPlanner::PlanDeck pd(const std::string& path, uint8_t share, uint16_t fresh,
+                                     FlashcardDeckState state = FlashcardDeckState::Active) {
+  FlashcardPlanner::PlanDeck d;
+  d.path = path;
+  d.share = share;
+  d.newCards = fresh;
+  d.state = state;
+  return d;
+}
+
+static uint16_t allotOf(const std::vector<FlashcardPlanner::Allot>& a, const std::string& path) {
+  for (const auto& x : a)
+    if (x.path == path) return x.allot;
+  return 0;
+}
+
+static uint32_t allotSum(const std::vector<FlashcardPlanner::Allot>& a) {
+  uint32_t s = 0;
+  for (const auto& x : a) s += x.allot;
+  return s;
+}
+
+static void testPlannerSplit() {
+  using FlashcardPlanner::split;
+  // 5 decks x share 5, total 30: the 5 left over are spread, 6 each
+  std::vector<FlashcardPlanner::PlanDeck> five;
+  for (int i = 0; i < 5; ++i) five.push_back(pd("d" + std::to_string(i), 5, 100));
+  auto a = split(five, {}, 30, 0, 1);
+  CHECK_EQ(allotSum(a), (uint32_t)30);
+  for (int i = 0; i < 5; ++i) CHECK_EQ(allotOf(a, "d" + std::to_string(i)), (uint16_t)6);
+  // Total equal to the shares: exactly the shares
+  a = split(five, {}, 25, 0, 1);
+  for (int i = 0; i < 5; ++i) CHECK_EQ(allotOf(a, "d" + std::to_string(i)), (uint16_t)5);
+  // 10 decks x 5 = 50 > 30: cut in proportion, 3 each
+  std::vector<FlashcardPlanner::PlanDeck> ten;
+  for (int i = 0; i < 10; ++i) ten.push_back(pd("t" + std::to_string(i), 5, 100));
+  a = split(ten, {}, 30, 0, 7);
+  for (int i = 0; i < 10; ++i) CHECK_EQ(allotOf(a, "t" + std::to_string(i)), (uint16_t)3);
+  // Remainder not divisible: 32 over 10 → two decks get 4, never more than one apart
+  a = split(ten, {}, 32, 0, 7);
+  CHECK_EQ(allotSum(a), (uint32_t)32);
+  int fours = 0;
+  for (int i = 0; i < 10; ++i) {
+    const uint16_t v = allotOf(a, "t" + std::to_string(i));
+    CHECK_EQ(v == 3 || v == 4, true);
+    fours += v == 4;
+  }
+  CHECK_EQ(fours, 2);
+  // Ties are broken by the seed: some seed gives a different pair
+  bool differs = false;
+  for (uint32_t seed = 2; seed < 40 && !differs; ++seed) {
+    const auto b = split(ten, {}, 32, 0, seed);
+    for (int i = 0; i < 10; ++i) differs |= allotOf(b, "t" + std::to_string(i)) != allotOf(a, "t" + std::to_string(i));
+  }
+  CHECK_EQ(differs, true);
+  // English share 10 + four LPIC share 5, total 40: 13 and 7, 7, 7, 6
+  std::vector<FlashcardPlanner::PlanDeck> mix = {pd("en", 10, 600), pd("l1", 5, 100), pd("l2", 5, 100),
+                                                 pd("l3", 5, 100), pd("l4", 5, 100)};
+  a = split(mix, {}, 40, 0, 3);
+  CHECK_EQ(allotOf(a, "en"), (uint16_t)13);
+  std::vector<uint16_t> l = {allotOf(a, "l1"), allotOf(a, "l2"), allotOf(a, "l3"), allotOf(a, "l4")};
+  std::sort(l.begin(), l.end());
+  CHECK_EQ(l, (std::vector<uint16_t>{6, 7, 7, 7}));
+  // Proportional without favouring the bigger share (Sainte-Laguë, not D'Hondt):
+  // shares 5 and 1, total 4 → 3 and 1 (D'Hondt would give 4 and 0)
+  std::vector<FlashcardPlanner::PlanDeck> skew = {pd("big", 5, 100), pd("small", 1, 100)};
+  for (uint32_t seed = 1; seed < 6; ++seed) {
+    a = split(skew, {}, 4, 0, seed);
+    CHECK_EQ(allotOf(a, "big"), (uint16_t)3);
+    CHECK_EQ(allotOf(a, "small"), (uint16_t)1);
+  }
+  // A deck running out of new cards: its part goes to the others
+  std::vector<FlashcardPlanner::PlanDeck> cap = {pd("a", 5, 2), pd("b", 5, 100), pd("c", 5, 100)};
+  a = split(cap, {}, 30, 0, 1);
+  CHECK_EQ(allotOf(a, "a"), (uint16_t)2);
+  CHECK_EQ(allotOf(a, "b"), (uint16_t)14);
+  CHECK_EQ(allotOf(a, "c"), (uint16_t)14);
+  // Not enough new cards anywhere: everything that exists, no more
+  std::vector<FlashcardPlanner::PlanDeck> few = {pd("a", 5, 2), pd("b", 5, 3)};
+  a = split(few, {}, 30, 0, 1);
+  CHECK_EQ(allotSum(a), (uint32_t)5);
+  // Stand-by, Reviews only, over the limit and decks without new cards get nothing
+  auto trunc = pd("tr", 5, 50);
+  trunc.spacedOk = false;
+  std::vector<FlashcardPlanner::PlanDeck> states = {pd("act", 5, 50), pd("sb", 5, 50, FlashcardDeckState::StandBy),
+                                                    pd("ro", 5, 50, FlashcardDeckState::ReviewsOnly), trunc,
+                                                    pd("empty", 5, 0)};
+  a = split(states, {}, 20, 0, 1);
+  CHECK_EQ(allotOf(a, "act"), (uint16_t)20);
+  CHECK_EQ(a.size(), (size_t)1);
+  CHECK_EQ(FlashcardPlanner::shareSum(states), (uint32_t)5);
+  // Same day, new split: what was used stays, the total is respected
+  std::vector<FlashcardPlanner::Allot> prev = {{"d0", 6, 6}, {"d1", 6, 2}, {"gone", 3, 3}};
+  a = split(five, prev, 30, 11, 1);
+  CHECK_EQ(allotSum(a), (uint32_t)30);
+  uint32_t used = 0;
+  for (const auto& x : a) {
+    used += x.used;
+    CHECK_EQ(x.allot >= x.used, true);
+  }
+  CHECK_EQ(used, (uint32_t)11);
+  CHECK_EQ(allotOf(a, "gone"), (uint16_t)3);  // a deck no longer listed keeps its count
+  // Fair over the day: d0 already had 6, so the others catch up first
+  CHECK_EQ(allotOf(a, "d0"), (uint16_t)6);
+  // Global counter above the sum of used (cards from before the split): counted too
+  a = split(five, {}, 30, 28, 1);
+  CHECK_EQ(allotSum(a), (uint32_t)2);
+  a = split(five, {}, 30, 40, 1);  // total lowered below what was already done
+  CHECK_EQ(allotSum(a), (uint32_t)0);
+  CHECK_EQ(FlashcardPlanner::remaining(a, "d0"), (uint16_t)0);
+  CHECK_EQ(FlashcardPlanner::remaining(a, "nope"), (uint16_t)0);
+  // Default state: never studied → stand-by; any studied card → Active
+  DeckStats fresh;
+  fresh.totalCards = 300;
+  fresh.newCards = 300;
+  CHECK_EQ(FlashcardPlanner::defaultState(fresh) == FlashcardDeckState::StandBy, true);
+  fresh.newCards = 299;
+  CHECK_EQ(FlashcardPlanner::defaultState(fresh) == FlashcardDeckState::Active, true);
+  CHECK_EQ(FlashcardPlanner::nextState(FlashcardDeckState::Active) == FlashcardDeckState::ReviewsOnly, true);
+  CHECK_EQ(FlashcardPlanner::nextState(FlashcardDeckState::ReviewsOnly) == FlashcardDeckState::StandBy, true);
+  CHECK_EQ(FlashcardPlanner::nextState(FlashcardDeckState::StandBy) == FlashcardDeckState::Active, true);
+}
+
+static void resetOptions() {
+  JsonDocument empty;
+  FLASHCARD_DECK_OPTIONS.fromJson(empty.as<JsonVariantConst>());
+}
+
+static void testDeckOptions(const std::string& root) {
+  auto& o = FLASHCARD_DECK_OPTIONS;
+  std::filesystem::remove_all(root + "/.crosspoint");
+  resetOptions();
+  DeckStats studied;
+  studied.totalCards = 10;
+  studied.newCards = 4;
+  DeckStats unseen;
+  unseen.totalCards = 10;
+  unseen.newCards = 10;
+  CHECK_EQ(o.stateFor("/flashcard/a.csv", studied) == FlashcardDeckState::Active, true);
+  CHECK_EQ(o.stateFor("/flashcard/b.csv", unseen) == FlashcardDeckState::StandBy, true);
+  CHECK_EQ(o.shareFor("/flashcard/a.csv"), FlashcardPlanner::DEFAULT_SHARE);
+  o.set("/flashcard/b.csv", FlashcardDeckState::Active, 12);
+  o.set("/flashcard/c.csv", FlashcardDeckState::ReviewsOnly, 200);  // clamped
+  CHECK_EQ(o.stateFor("/flashcard/b.csv", unseen) == FlashcardDeckState::Active, true);
+  CHECK_EQ(o.shareFor("/flashcard/b.csv"), (uint8_t)12);
+  CHECK_EQ(o.shareFor("/flashcard/c.csv"), FlashcardPlanner::SHARE_MAX);
+
+  const uint32_t day = 9700;
+  std::vector<FlashcardPlanner::PlanDeck> decks = {pd("/flashcard/a.csv", 5, 100), pd("/flashcard/b.csv", 12, 100)};
+  CHECK_EQ(o.refreshSplit(decks, day, 17, 0, 5), true);
+  CHECK_EQ(o.refreshSplit(decks, day, 17, 0, 5), false);  // already done today
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", day), (uint16_t)5);
+  CHECK_EQ(o.newRemaining("/flashcard/b.csv", day), (uint16_t)12);
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", day + 1), (uint16_t)0);  // no split for that day
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", 0), (uint16_t)0);
+  o.recordNew("/flashcard/a.csv", day);
+  o.recordNew("/flashcard/a.csv", day);
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", day), (uint16_t)3);
+  o.recordLinearPass("/flashcard/a.csv", 17, 20);
+  o.recordLinearPass("/flashcard/a.csv", 2, 3);
+  o.recordLinearPass("/flashcard/z.csv", 0, 0);  // empty pass: ignored
+
+  // Save, forget, load: everything comes back
+  CHECK_EQ(o.saveToFile(), true);
+  resetOptions();
+  CHECK_EQ(o.shareFor("/flashcard/b.csv"), FlashcardPlanner::DEFAULT_SHARE);
+  CHECK_EQ(o.loadFromFile(), true);
+  CHECK_EQ(o.shareFor("/flashcard/b.csv"), (uint8_t)12);
+  CHECK_EQ(o.stateFor("/flashcard/c.csv", studied) == FlashcardDeckState::ReviewsOnly, true);
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", day), (uint16_t)3);
+  const auto* lin = o.linearResult("/flashcard/a.csv");
+  CHECK_EQ(lin != nullptr, true);
+  if (lin) {
+    CHECK_EQ(lin->passes, (uint16_t)2);
+    CHECK_EQ(lin->lastKnownPct, (uint8_t)67);
+  }
+  CHECK_EQ(o.linearResult("/flashcard/z.csv") == nullptr, true);
+
+  // A changed choice redoes the split the same day, keeping what was used
+  o.set("/flashcard/b.csv", FlashcardDeckState::StandBy, 12);
+  decks[1].state = FlashcardDeckState::StandBy;
+  CHECK_EQ(o.refreshSplit(decks, day, 17, 2, 5), true);
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", day), (uint16_t)15);  // 17 - 2 used, all to a
+  CHECK_EQ(o.newRemaining("/flashcard/b.csv", day), (uint16_t)0);
+  // Setting the same values again changes nothing
+  CHECK_EQ(o.refreshSplit(decks, day, 17, 2, 5), false);
+  o.set("/flashcard/b.csv", FlashcardDeckState::StandBy, 12);
+  CHECK_EQ(o.refreshSplit(decks, day, 17, 2, 5), false);
+  // Total changed in Settings: invalidate, same day
+  o.invalidateSplit();
+  CHECK_EQ(o.refreshSplit(decks, day, 10, 2, 5), true);
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", day), (uint16_t)8);
+  // Next day: starts over
+  CHECK_EQ(o.refreshSplit(decks, day + 1, 10, 0, 5), true);
+  CHECK_EQ(o.newRemaining("/flashcard/a.csv", day + 1), (uint16_t)10);
+  // Clock not set: no split
+  CHECK_EQ(o.refreshSplit(decks, 0, 10, 0, 5), false);
+
+  // Prune drops decks that are gone
+  CHECK_EQ(o.prune({"/flashcard/a.csv", "/flashcard/b.csv"}), true);
+  CHECK_EQ(o.shareFor("/flashcard/c.csv"), FlashcardPlanner::DEFAULT_SHARE);
+  CHECK_EQ(o.prune({"/flashcard/a.csv", "/flashcard/b.csv"}), false);
+  CHECK_EQ(o.prune({"/flashcard/b.csv"}), true);  // a: only a linear result left
+  CHECK_EQ(o.linearResult("/flashcard/a.csv") == nullptr, true);
+
+  // Damaged or unknown files do not load and leave defaults
+  std::ofstream(root + "/.crosspoint/flashcard_decks.json") << "{not json";
+  CHECK_EQ(o.loadFromFile(), false);
+  std::ofstream(root + "/.crosspoint/flashcard_decks.json") << "{\"v\":99,\"decks\":[{\"p\":\"/x\",\"s\":1}]}";
+  CHECK_EQ(o.loadFromFile(), false);
+  CHECK_EQ(o.getOptions().empty(), true);
+  // Out-of-range values are clamped
+  std::ofstream(root + "/.crosspoint/flashcard_decks.json")
+      << "{\"v\":1,\"decks\":[{\"p\":\"/x\",\"s\":9,\"n\":0}],\"linear\":[{\"p\":\"/x\",\"c\":1,\"k\":250}],"
+         "\"split\":[{\"p\":\"/x\",\"a\":1,\"u\":5}],\"splitDay\":5,\"splitValid\":true}";
+  CHECK_EQ(o.loadFromFile(), true);
+  CHECK_EQ(o.stateFor("/x", studied) == FlashcardDeckState::StandBy, true);
+  CHECK_EQ(o.shareFor("/x"), FlashcardPlanner::SHARE_MIN);
+  CHECK_EQ(o.linearResult("/x")->lastKnownPct, (uint8_t)100);
+  CHECK_EQ(o.newRemaining("/x", 5), (uint16_t)0);  // allot raised to used
+  resetOptions();
+  std::filesystem::remove_all(root + "/.crosspoint");
+}
+
+static void testCatalogPlan(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc + "/English");
+  auto put = [&](const std::string& rel, int cards, int studied) {
+    std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+    for (int i = 1; i <= cards; ++i)
+      csv += std::to_string(i) + ",f,b," + (i <= studied ? "01/01/2026,3,250" : ",,") + "\n";
+    std::ofstream(fc + "/" + rel, std::ios::binary) << csv;
+  };
+  put("lpic.csv", 20, 5);         // studied → Active by default
+  put("English/g1.csv", 300, 0);  // never studied → stand-by
+  put("English/g2.csv", 300, 0);
+  resetOptions();
+  const uint32_t today = FlashcardSrs::parseDateStr("27/09/2026");
+  std::vector<FlashcardCatalog::Entry> entries;
+  for (const auto& p : FlashcardCatalog::allDecks()) {
+    FlashcardCatalog::Entry e;
+    CHECK_EQ(FlashcardCatalog::load(p, today, e), true);
+    entries.push_back(e);
+  }
+  CHECK_EQ(FlashcardCatalog::applyPlan(entries, FLASHCARD_DECK_OPTIONS, today, 30, 0, 1), true);
+  CHECK_EQ(entries[0].state == FlashcardDeckState::Active, true);
+  CHECK_EQ(entries[1].state == FlashcardDeckState::StandBy, true);
+  CHECK_EQ(entries[0].newToday, (uint16_t)15);  // only 15 new cards left in it
+  CHECK_EQ(entries[1].newToday, (uint16_t)0);
+  // Activating English: the 30 are shared again (15 + 15 left for 2 decks of share 5)
+  FLASHCARD_DECK_OPTIONS.set(entries[1].path, FlashcardDeckState::Active, 5);
+  FLASHCARD_DECK_OPTIONS.set(entries[2].path, FlashcardDeckState::Active, 5);
+  CHECK_EQ(FlashcardCatalog::applyPlan(entries, FLASHCARD_DECK_OPTIONS, today, 30, 0, 1), true);
+  CHECK_EQ(entries[0].newToday + entries[1].newToday + entries[2].newToday, 30);
+  CHECK_EQ(entries[0].newToday, (uint16_t)10);
+  resetOptions();
+  fs::remove_all(fc);
+}
+
+// ─── History ─────────────────────────────────────────────────────────────────
+
+static uint32_t fileSize(const std::string& p) {
+  std::error_code ec;
+  const auto n = std::filesystem::file_size(p, ec);
+  return ec ? 0 : (uint32_t)n;
+}
+
+static void testHistory(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string file = root + FlashcardHistory::PATH;
+  fs::remove_all(root + "/.crosspoint");
+  FlashcardHistory::resetForTest();
+
+  // Encoding round trip; damage is detected
+  FlashcardDayRecord r;
+  r.day = 9700;
+  r.again = 1;
+  r.hard = 2;
+  r.good = 300;
+  r.easy = 4;
+  r.newCards = 5;
+  r.reviewCards = 6;
+  r.reviewCorrect = 7;
+  r.matureReviews = 8;
+  r.matureCorrect = 9;
+  r.linearCards = 65535;
+  r.spacedSeconds = 11;
+  r.linearSeconds = 12;
+  uint8_t buf[FlashcardHistory::RECORD_BYTES];
+  FlashcardHistory::encode(r, buf);
+  FlashcardDayRecord back;
+  CHECK_EQ(FlashcardHistory::decode(buf, back), true);
+  CHECK_EQ(back.good, (uint16_t)300);
+  CHECK_EQ(back.linearCards, (uint16_t)65535);
+  CHECK_EQ(back.linearSeconds, (uint16_t)12);
+  CHECK_EQ(back.cards(), (uint32_t)(307 + 65535));
+  buf[5] ^= 0x10;
+  CHECK_EQ(FlashcardHistory::decode(buf, back), false);
+  FlashcardDayRecord zero;
+  FlashcardHistory::encode(zero, buf);
+  CHECK_EQ(FlashcardHistory::decode(buf, back), false);  // day 0 is never valid
+  // Saturating sums
+  FlashcardDayRecord big = r;
+  big.add(r);
+  CHECK_EQ(big.linearCards, (uint16_t)65535);
+  CHECK_EQ(big.good, (uint16_t)600);
+
+  // Nothing is recorded without a date
+  FlashcardHistory::recordLinear(0, 5);
+  CHECK_EQ(FlashcardHistory::flush(), true);
+  CHECK_EQ(fs::exists(file), false);
+
+  const uint32_t d1 = FlashcardSrs::parseDateStr("21/09/2026");  // Monday
+  // New card: counted as new, not in retention. Review card missed / right. Mature card.
+  FlashcardHistory::recordSpaced(d1, SrsRating::Again, true, 0, 12);
+  FlashcardHistory::recordSpaced(d1, SrsRating::Good, false, 0, 500);  // relearning: interval 0, time capped
+  FlashcardHistory::recordSpaced(d1, SrsRating::Again, false, 3, 5);
+  FlashcardHistory::recordSpaced(d1, SrsRating::Good, false, 4, 5);
+  FlashcardHistory::recordSpaced(d1, SrsRating::Easy, false, 30, 5);
+  FlashcardHistory::recordLinear(d1, 7);
+  CHECK_EQ(FlashcardHistory::flush(), true);
+  CHECK_EQ(fileSize(file), (uint32_t)FlashcardHistory::RECORD_BYTES);
+  auto recs = FlashcardHistory::readRange(d1, d1);
+  CHECK_EQ(recs.size(), (size_t)1);
+  if (!recs.empty()) {
+    const auto& x = recs[0];
+    CHECK_EQ(x.spaced(), (uint32_t)5);
+    CHECK_EQ(x.again, (uint16_t)2);
+    CHECK_EQ(x.newCards, (uint16_t)1);
+    CHECK_EQ(x.reviewCards, (uint16_t)3);  // interval >= 1 before the rating
+    CHECK_EQ(x.reviewCorrect, (uint16_t)2);
+    CHECK_EQ(x.matureReviews, (uint16_t)1);
+    CHECK_EQ(x.matureCorrect, (uint16_t)1);
+    CHECK_EQ(x.linearCards, (uint16_t)1);
+    CHECK_EQ(x.spacedSeconds, (uint16_t)(12 + 60 + 15));
+    CHECK_EQ(x.linearSeconds, (uint16_t)7);
+  }
+
+  // Later the same day (device restarted): counts continue, still one record
+  FlashcardHistory::resetForTest();
+  FlashcardHistory::recordLinear(d1, 3);
+  CHECK_EQ(FlashcardHistory::flush(), true);
+  CHECK_EQ(fileSize(file), (uint32_t)FlashcardHistory::RECORD_BYTES);
+  recs = FlashcardHistory::readRange(d1, d1);
+  CHECK_EQ(recs.empty() ? 0u : (unsigned)recs[0].linearCards, 2u);
+  CHECK_EQ(recs.empty() ? 0u : (unsigned)recs[0].spaced(), 5u);
+
+  // Next days append; unflushed RAM state is visible to readRange
+  for (uint32_t d = d1 + 1; d <= d1 + 5; ++d) FlashcardHistory::recordLinear(d, 1);  // Tue..Sat
+  CHECK_EQ(FlashcardHistory::readRange(d1, d1 + 10).size(), (size_t)6);
+  CHECK_EQ(FlashcardHistory::flush(), true);
+  CHECK_EQ(fileSize(file), (uint32_t)FlashcardHistory::RECORD_BYTES * 6);
+  CHECK_EQ(FlashcardHistory::readRange(d1 + 2, d1 + 3).size(), (size_t)2);
+  CHECK_EQ(FlashcardHistory::readRange(d1 + 3, d1 + 2).size(), (size_t)0);
+
+  // Streaks: Sunday (d1+6) is a free day with no study, Monday (d1+7) studied
+  const uint8_t sundayFree = 1;
+  FlashcardHistory::recordLinear(d1 + 7, 1);
+  CHECK_EQ(FlashcardHistory::flush(), true);
+  auto sum = FlashcardHistory::summarize(d1 + 7, sundayFree);
+  CHECK_EQ(sum.currentStreak, (uint16_t)7);
+  CHECK_EQ(sum.longestStreak, (uint16_t)7);
+  CHECK_EQ(sum.firstDay, d1);
+  CHECK_EQ(sum.bestDay, d1);
+  CHECK_EQ(sum.bestDayCards, (uint32_t)7);
+  // Without the free day the gap breaks it
+  sum = FlashcardHistory::summarize(d1 + 7, 0);
+  CHECK_EQ(sum.currentStreak, (uint16_t)1);
+  CHECK_EQ(sum.longestStreak, (uint16_t)6);
+  // Today not studied yet: the streak up to yesterday still counts
+  sum = FlashcardHistory::summarize(d1 + 8, 0);
+  CHECK_EQ(sum.currentStreak, (uint16_t)1);
+  // Two days without study: gone
+  sum = FlashcardHistory::summarize(d1 + 9, 0);
+  CHECK_EQ(sum.currentStreak, (uint16_t)0);
+  CHECK_EQ(sum.longestStreak, (uint16_t)6);
+
+  // Clock set back: an earlier day recorded after later ones still reads in order and merges
+  FlashcardHistory::recordLinear(d1 + 2, 1);
+  CHECK_EQ(FlashcardHistory::flush(), true);
+  recs = FlashcardHistory::readRange(d1, d1 + 10);
+  CHECK_EQ(recs.size(), (size_t)7);
+  bool ascending = true;
+  for (size_t i = 1; i < recs.size(); ++i) ascending &= recs[i - 1].day < recs[i].day;
+  CHECK_EQ(ascending, true);
+  CHECK_EQ(FlashcardHistory::readRange(d1 + 2, d1 + 2)[0].linearCards, (uint16_t)2);
+
+  // A torn write at the end (partial record) is ignored and dropped by the next flush
+  const uint32_t before = fileSize(file);
+  {
+    std::ofstream(file, std::ios::binary | std::ios::app) << "garbage";
+  }
+  CHECK_EQ(FlashcardHistory::readRange(d1, d1 + 10).size(), (size_t)7);
+  FlashcardHistory::resetForTest();
+  FlashcardHistory::recordLinear(d1 + 20, 1);
+  CHECK_EQ(FlashcardHistory::flush(), true);
+  CHECK_EQ(fileSize(file), before + (uint32_t)FlashcardHistory::RECORD_BYTES);
+  CHECK_EQ(FlashcardHistory::readRange(d1, d1 + 30).size(), (size_t)8);
+  // A damaged record in the middle is skipped, the others survive
+  {
+    std::fstream f(file, std::ios::binary | std::ios::in | std::ios::out);
+    f.seekp(FlashcardHistory::RECORD_BYTES + 3);
+    f.put('\x5A');
+  }
+  CHECK_EQ(FlashcardHistory::readRange(d1, d1 + 30).size(), (size_t)7);
+  // Interrupted flush (only the .tmp left): recovered
+  fs::rename(file, file + ".tmp");
+  CHECK_EQ(FlashcardHistory::readRange(d1, d1 + 30).size(), (size_t)7);
+  CHECK_EQ(fs::exists(file), true);
+  FlashcardHistory::resetForTest();
+  fs::remove_all(root + "/.crosspoint");
+}
+
+static void testPeriods() {
+  using namespace FlashcardPeriods;
+  const auto D = [](const char* s) { return FlashcardSrs::parseDateStr(s); };
+  CHECK_EQ(weekStart(D("27/09/2026")), D("21/09/2026"));  // Sunday → Monday before
+  CHECK_EQ(weekStart(D("21/09/2026")), D("21/09/2026"));
+  CHECK_EQ(weekStart(D("22/09/2026")), D("21/09/2026"));
+  CHECK_EQ(monthStart(D("27/09/2026")), D("01/09/2026"));
+  CHECK_EQ(monthStart(D("01/03/2028")), D("01/03/2028"));
+  CHECK_EQ(nextStart(Scale::Months, D("01/01/2026")), D("01/02/2026"));
+  CHECK_EQ(nextStart(Scale::Months, D("01/02/2026")), D("01/03/2026"));
+  CHECK_EQ(nextStart(Scale::Months, D("01/02/2028")), D("01/03/2028"));  // leap year
+  CHECK_EQ(nextStart(Scale::Months, D("01/12/2026")), D("01/01/2027"));
+  CHECK_EQ(previousStart(Scale::Months, D("01/03/2026")), D("01/02/2026"));
+  CHECK_EQ(previousStart(Scale::Months, D("01/01/2027")), D("01/12/2026"));
+  CHECK_EQ(previousStart(Scale::Weeks, D("21/09/2026")), D("14/09/2026"));
+
+  const uint32_t today = D("27/09/2026");
+  auto b = buckets(Scale::Days, today, 30, 0);
+  CHECK_EQ(b.size(), (size_t)30);
+  CHECK_EQ(b.back().start, today);
+  CHECK_EQ(b.front().start, today - 29);
+  b = buckets(Scale::Days, today, 30, 1);
+  CHECK_EQ(b.back().end, today - 30);
+  b = buckets(Scale::Weeks, today, 12, 0);
+  CHECK_EQ(b.back().start, D("21/09/2026"));
+  CHECK_EQ(b.back().end, D("27/09/2026"));
+  bool contiguous = true;
+  for (size_t i = 1; i < b.size(); ++i) contiguous &= b[i].start == b[i - 1].end + 1;
+  CHECK_EQ(contiguous, true);
+  b = buckets(Scale::Months, today, 12, 0);
+  CHECK_EQ(b.back().start, D("01/09/2026"));
+  CHECK_EQ(b.back().end, D("30/09/2026"));
+  CHECK_EQ(b.front().start, D("01/10/2025"));
+  b = buckets(Scale::Months, today, 12, 1);
+  CHECK_EQ(b.back().start, D("01/09/2025"));
+  CHECK_EQ(b.back().end, D("30/09/2025"));
+
+  std::vector<FlashcardDayRecord> recs(3);
+  recs[0].day = D("31/08/2026");
+  recs[0].good = 4;
+  recs[1].day = D("01/09/2026");
+  recs[1].good = 2;
+  recs[2].day = D("27/09/2026");
+  recs[2].linearCards = 3;
+  b = buckets(Scale::Months, today, 2, 0);
+  fill(b, recs);
+  CHECK_EQ(b[0].sum.cards(), (uint32_t)4);
+  CHECK_EQ(b[1].sum.cards(), (uint32_t)5);
+  CHECK_EQ(sum(recs, D("01/09/2026"), today).cards(), (uint32_t)5);
+  CHECK_EQ(percent(2, 3), 67);
+  CHECK_EQ(percent(0, 5), 0);
+  CHECK_EQ(percent(1, 0), -1);
+}
+
+static void testStatsScan(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc);
+  const uint32_t today = FlashcardSrs::parseDateStr("27/09/2026");
+  char due[16];
+  auto date = [&](uint32_t d) {
+    FlashcardSrs::formatDateStr(d, due, sizeof(due));
+    return std::string(due);
+  };
+  std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+  csv += "1,new card,b,,,\n";
+  csv += "2,overdue,b," + date(today - 2) + ",3,250\n";
+  csv += "3,mature,b," + date(today + 5) + ",30,250\n";
+  csv += "4,\"worst/nline \\ hint \\\",\"answer/nhere\"," + date(today + 1) + ",1,130\n";
+  csv += "5,edge,b," + date(today + 40) + ",2,150\n";
+  csv += "6,fine,b," + date(today) + ",2,160\n";
+  std::ofstream(fc + "/deck.csv", std::ios::binary) << csv;
+
+  uint32_t forecast[FlashcardStatsScan::FORECAST_DAYS] = {};
+  std::vector<FlashcardHardCard> hard;
+  FlashcardStatsScan::DeckResult r;
+  CHECK_EQ(FlashcardStatsScan::scanDeck("/flashcard/deck.csv", today, r, forecast, &hard), true);
+  CHECK_EQ(r.phases.newCards, (uint32_t)1);
+  CHECK_EQ(r.phases.mature, (uint32_t)1);
+  CHECK_EQ(r.phases.learning, (uint32_t)4);
+  CHECK_EQ(forecast[0], (uint32_t)2);  // overdue + due today
+  CHECK_EQ(forecast[1], (uint32_t)1);
+  CHECK_EQ(forecast[5], (uint32_t)1);
+  // Same counts as the list scan
+  DeckStats st;
+  bool trunc = false;
+  CHECK_EQ(FlashcardDeck::scanStats("/flashcard/deck.csv", today, st, trunc), true);
+  CHECK_EQ(st.totalCards, r.stats.totalCards);
+  CHECK_EQ(st.newCards, r.stats.newCards);
+  CHECK_EQ(st.dueCards, r.stats.dueCards);
+  // Hard cards: ease <= 150, worst first; display text decoded
+  CHECK_EQ(hard.size(), (size_t)2);
+  if (hard.size() == 2) {
+    CHECK_EQ(hard[0].ease, (uint16_t)130);
+    CHECK_EQ(hard[0].front, std::string("worst line"));
+    CHECK_EQ(hard[0].back, std::string("answer here"));
+    CHECK_EQ(hard[0].deckName, std::string("deck"));
+    CHECK_EQ(hard[1].front, std::string("edge"));
+    // The positions read back through the folder index
+    std::vector<FlashcardFolderIndex::CardRef> refs;
+    for (const auto& h : hard) refs.push_back({h.path, h.offset});
+    FlashcardFolderIndex idx;
+    CHECK_EQ(idx.buildFromRefs(refs), true);
+    CHECK_EQ(idx.size(), (size_t)2);
+    FlashcardCard c;
+    CHECK_EQ(idx.loadCard(0, c), true);
+    CHECK_EQ(c.frontContent, std::string("worst/nline \\ hint \\"));
+    const uint32_t fp = idx.fingerprint();
+    FlashcardFolderIndex again;
+    again.buildFromRefs(refs);
+    CHECK_EQ(again.fingerprint(), fp);
+    // A position that no longer holds a card is skipped
+    refs.push_back({"/flashcard/deck.csv", 999999});
+    refs.push_back({"/flashcard/missing.csv", 0});
+    FlashcardFolderIndex stale;
+    CHECK_EQ(stale.buildFromRefs(refs), true);
+    CHECK_EQ(stale.size(), (size_t)2);
+    FlashcardFolderIndex none;
+    CHECK_EQ(none.buildFromRefs({}), false);
+  }
+
+  // At most MAX_HARD, the worst ones, across decks
+  std::string many = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+  for (int i = 1; i <= 60; ++i) {
+    many += std::to_string(i) + ",h" + std::to_string(i) + ",b," + date(today) + ",1," +
+            std::to_string(130 + (i % 21)) + "\n";
+  }
+  std::ofstream(fc + "/many.csv", std::ios::binary) << many;
+  hard = FlashcardStatsScan::collectHard({"/flashcard/deck.csv", "/flashcard/many.csv"});
+  CHECK_EQ(hard.size(), FlashcardStatsScan::MAX_HARD);
+  bool ordered = true;
+  for (size_t i = 1; i < hard.size(); ++i) ordered &= !FlashcardStatsScan::harder(hard[i], hard[i - 1]);
+  CHECK_EQ(ordered, true);
+  CHECK_EQ(hard.front().ease, (uint16_t)130);
+
+  // Short text never ends inside a UTF-8 character
+  std::string accents;
+  for (int i = 0; i < 100; ++i) accents += "\xC3\xA9";
+  const std::string cut = FlashcardStatsScan::shortText(accents);
+  CHECK_EQ(cut.size() <= FlashcardStatsScan::TEXT_BYTES, true);
+  CHECK_EQ(cut.size() % 2, (size_t)0);
+  CHECK_EQ(FlashcardStatsScan::shortText("a\nb\tc"), std::string("a b c"));
+  fs::remove_all(fc);
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
@@ -736,6 +1293,12 @@ int main(int argc, char** argv) {
   testWholeFolder(Storage.root);
   testStreamingParserMatchesReference(Storage.root);
   testLowMemory(Storage.root);
+  testPlannerSplit();
+  testDeckOptions(Storage.root);
+  testCatalogPlan(Storage.root);
+  testHistory(Storage.root);
+  testPeriods();
+  testStatsScan(Storage.root);
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();

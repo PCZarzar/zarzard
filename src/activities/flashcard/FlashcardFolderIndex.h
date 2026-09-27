@@ -16,6 +16,15 @@ class FlashcardFolderIndex {
   // readable deck, no memory); decks that fail to read are skipped.
   bool build(const std::vector<std::string>& deckPaths);
 
+  // Chosen cards (e.g. the difficult ones), each given by its deck and record
+  // position. Cards that no longer read back are skipped. The fingerprint
+  // covers the positions and the text read, in order.
+  struct CardRef {
+    std::string path;
+    uint32_t offset = 0;
+  };
+  bool buildFromRefs(const std::vector<CardRef>& cards);
+
   size_t size() const { return refs.size(); }
   bool isTruncated() const { return truncated; }  // MAX_CARDS reached or memory ran low
 

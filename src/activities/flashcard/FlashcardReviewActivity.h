@@ -36,6 +36,7 @@ class FlashcardReviewActivity final : public Activity {
   // Linear start discards any saved pass.
   // A deckPath ending in '/' is a whole folder (Linear only): every card of its
   // decks in one pass, always shuffled, with its own saved progress.
+  // FLASHCARD_HARD_KEY is the difficult cards of every deck (Linear only).
   FlashcardReviewActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& deckPath,
                           ReviewMode mode, bool shuffle, bool resumeLinear, FlashcardNextDeckProvider nextDeck);
   void onEnter() override;
@@ -63,6 +64,8 @@ class FlashcardReviewActivity final : public Activity {
   // card); called from loop(), never from render().
   void prepareLinearCard();
   const std::string& displayName() const;
+  uint16_t cardSeconds();
+  const char* doneMessage() const;
   void renderCard(const FlashcardCard& card);
   void renderSummary();
 
@@ -79,6 +82,7 @@ class FlashcardReviewActivity final : public Activity {
   FlashcardCard folderCard;  // whole folder: the card on screen
   size_t folderCardIndex = SIZE_MAX;
   bool folderCardOk = false;
+  unsigned long cardShownMs = 0;  // when the current card appeared (study time)
 
   // Spaced mode
   std::vector<size_t> reviewQueue;
