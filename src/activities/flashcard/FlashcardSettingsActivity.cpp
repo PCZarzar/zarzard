@@ -8,7 +8,7 @@
 #include <cstdlib>
 
 #include "FlashcardClockSync.h"
-#include "FlashcardClockSyncActivity.h"
+#include "FlashcardDateActivity.h"
 #include "FlashcardSpacedSettingsActivity.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
@@ -68,11 +68,10 @@ void FlashcardSettingsActivity::loop() {
         FLASHCARD_STORE.shuffle = FLASHCARD_STORE.shuffle ? 0 : 1;
         dirty = true;
       } else if (selectedIndex == ROW_SYNC) {
-        // Restarts the device on exit when it had to turn WiFi on (like
-        // CrossPoint's clock sync), so save pending edits first.
+        // A Wi-Fi sync restarts the device on exit, so save pending edits first.
         if (dirty) FLASHCARD_STORE.saveToFile();
         dirty = false;
-        startActivityForResult(std::make_unique<FlashcardClockSyncActivity>(renderer, mappedInput),
+        startActivityForResult(std::make_unique<FlashcardDateActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) { requestUpdate(); });
         return;
       } else {

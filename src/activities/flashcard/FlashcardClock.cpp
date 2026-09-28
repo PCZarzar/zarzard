@@ -16,12 +16,9 @@ State evaluate(const int64_t nowUnix, const uint32_t lastSyncUnix) {
   return State::Ok;
 }
 
-bool restoreAfterSleep(const int64_t savedUnix, const uint64_t savedRtcUs, const uint64_t rtcNowUs, int64_t& out) {
-  if (savedUnix < MIN_VALID_UNIX || rtcNowUs < savedRtcUs) return false;
-  const uint64_t elapsedUs = rtcNowUs - savedRtcUs;
-  if (elapsedUs / 1000000ULL > static_cast<uint64_t>(MAX_SLEEP_DAYS * SECONDS_PER_DAY)) return false;
-  out = savedUnix + static_cast<int64_t>(elapsedUs / 1000000ULL);
-  return true;
+int64_t noonOfDay(const uint32_t dayIndex, const int16_t offsetMinutes) {
+  return EPOCH_2000 + static_cast<int64_t>(dayIndex) * SECONDS_PER_DAY + 12 * 3600 -
+         static_cast<int64_t>(offsetMinutes) * 60;
 }
 
 uint32_t dayIndex(const int64_t nowUnix, const int16_t offsetMinutes) {

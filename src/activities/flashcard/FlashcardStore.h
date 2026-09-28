@@ -29,7 +29,8 @@ class FlashcardStore : public PersistableStore<FlashcardStore> {
   uint32_t newTodayDate = 0;        // day of that counter (FlashcardSrs::getToday format)
   uint8_t freeDaysMask = 0;         // bit w = no study on weekday w (bit 0 = Sunday)
   int16_t utcOffsetMinutes = -180;  // local day boundary; X4 hides CrossPoint's clock offset
-  uint32_t lastSyncUnix = 0;        // last successful NTP sync (UTC seconds), 0 = never
+  uint32_t lastSyncUnix = 0;        // last NTP sync or date confirmed by hand (UTC seconds), 0 = never
+  uint32_t lastSeenDay = 0;         // last day the date was known (day index): suggested after a wake
 };
 
 #define FLASHCARD_STORE FlashcardStore::getInstance()

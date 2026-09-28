@@ -7,7 +7,7 @@
 #include <cstdio>
 
 #include "FlashcardClockSync.h"
-#include "FlashcardClockSyncActivity.h"
+#include "FlashcardDateActivity.h"
 #include "FlashcardPlanRefresh.h"
 #include "FlashcardSrs.h"
 #include "FlashcardStore.h"
@@ -147,11 +147,10 @@ void FlashcardSpacedListActivity::startReview(const int deckIndex) {
 }
 
 void FlashcardSpacedListActivity::openSync() {
-  startActivityForResult(std::make_unique<FlashcardClockSyncActivity>(renderer, mappedInput),
-                         [this](const ActivityResult&) {
-                           reload();
-                           requestUpdate();
-                         });
+  startActivityForResult(std::make_unique<FlashcardDateActivity>(renderer, mappedInput), [this](const ActivityResult&) {
+    reload();
+    requestUpdate();
+  });
 }
 
 void FlashcardSpacedListActivity::loop() {

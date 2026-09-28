@@ -1283,22 +1283,20 @@ static void testStatsScan(const std::string& root) {
   fs::remove_all(fc);
 }
 
-static void testRestoreAfterSleep() {
-  using FlashcardClock::restoreAfterSleep;
-  const int64_t slept = 1790551831;  // 2026-09-27, valid
-  int64_t out = 0;
-  // 8 h asleep, counter kept running: the date comes back
-  CHECK_EQ(restoreAfterSleep(slept, 5000000ULL, 5000000ULL + 8ULL * 3600 * 1000000, out), true);
-  CHECK_EQ(out, slept + 8 * 3600);
-  CHECK_EQ(restoreAfterSleep(slept, 7, 7, out), true);  // woke at once
-  CHECK_EQ(out, slept);
-  // Counter went back: power was cut, nothing to trust
-  CHECK_EQ(restoreAfterSleep(slept, 9000000ULL, 1000ULL, out), false);
-  // Saved time was never valid (clock not synced before sleeping)
-  CHECK_EQ(restoreAfterSleep(1000, 0, 1000000, out), false);
-  // Implausible gap
-  CHECK_EQ(restoreAfterSleep(slept, 0, 401ULL * 86400 * 1000000, out), false);
-  CHECK_EQ(restoreAfterSleep(slept, 0, 399ULL * 86400 * 1000000, out), true);
+static void testNoonOfDay() {
+  // A date confirmed by hand lands on that same local day, whatever the time zone
+  bool same = true;
+  const uint32_t d0 = FlashcardSrs::parseDateStr("28/09/2026");
+  for (int off = -12 * 60; off <= 14 * 60; off += 30) {
+    for (uint32_t d = d0; d < d0 + 400; d += 37) {
+      same &= FlashcardClock::dayIndex(FlashcardClock::noonOfDay(d, (int16_t)off), (int16_t)off) == d;
+    }
+  }
+  CHECK_EQ(same, true);
+  CHECK_EQ(FlashcardClock::noonOfDay(d0, -180) >= FlashcardClock::MIN_VALID_UNIX, true);
+  CHECK_EQ(FlashcardClock::evaluate(FlashcardClock::noonOfDay(d0, -180),
+                                    (uint32_t)FlashcardClock::noonOfDay(d0, -180)) == FlashcardClock::State::Ok,
+           true);
 }
 
 int main(int argc, char** argv) {
@@ -1308,7 +1306,7 @@ int main(int argc, char** argv) {
   testLinearResume();
   testCatalog(Storage.root);
   testFreeDays();
-  testRestoreAfterSleep();
+  testNoonOfDay();
   testWholeFolder(Storage.root);
   testStreamingParserMatchesReference(Storage.root);
   testLowMemory(Storage.root);

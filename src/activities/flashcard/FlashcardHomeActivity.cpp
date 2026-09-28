@@ -3,6 +3,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include "FlashcardClockSync.h"
+#include "FlashcardDateActivity.h"
 #include "FlashcardDeckOptions.h"
 #include "FlashcardHistory.h"
 #include "FlashcardLinearBrowserActivity.h"
@@ -22,12 +24,26 @@ constexpr int ROW_LINEAR = 1;
 constexpr int ROW_STATS = 2;
 constexpr int ROW_SETTINGS = 3;
 constexpr int ROW_COUNT = 4;
+
+// The X4 forgets the date at every wake; ask once per power-on, not each time
+// Flashcards is opened (Back skips it).
+bool askedForDate = false;
 }  // namespace
 
 void FlashcardHomeActivity::onEnter() {
   Activity::onEnter();
   FLASHCARD_STORE.loadFromFile();  // missing file on first use: defaults stay
   FLASHCARD_DECK_OPTIONS.loadFromFile();
+  if (FlashcardClockSync::state() == FlashcardClock::State::Unset && !askedForDate) {
+    askedForDate = true;
+    startActivityForResult(std::make_unique<FlashcardDateActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) {
+                             FlashcardClockSync::noteToday();
+                             requestUpdate();
+                           });
+    return;
+  }
+  FlashcardClockSync::noteToday();
   requestUpdate();
 }
 

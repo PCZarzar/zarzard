@@ -5,9 +5,10 @@
 // they can be tested on the host; FlashcardClockSync wires them to the system
 // clock and FlashcardStore.
 //
-// The X4 has no RTC chip: the system clock is only right after an NTP sync
-// done from the flashcard app. ESP-IDF keeps it across deep sleep and software
-// resets (RTC timer), but a power-on reset brings it back to 1970.
+// The X4 has no RTC chip, and its power circuit cuts the chip off when it
+// sleeps: every wake is a power-on with the clock back at 1970 (seen in a
+// boot log). Software resets keep the clock. So the date comes from an NTP
+// sync or is confirmed by hand after each wake (FlashcardDateActivity).
 namespace FlashcardClock {
 
 // 2026-01-01T00:00:00Z. Anything earlier means the clock was never set since
@@ -24,12 +25,9 @@ enum class State : uint8_t {
 
 State evaluate(int64_t nowUnix, uint32_t lastSyncUnix);
 
-// Wall time after a deep sleep that lost the system clock but kept the RTC
-// counter running: the time saved just before sleeping plus the RTC time that
-// passed since. False when the saved time was not valid, the counter went
-// back (power was cut) or the gap is implausible (over MAX_SLEEP_DAYS).
-constexpr int64_t MAX_SLEEP_DAYS = 400;
-bool restoreAfterSleep(int64_t savedUnix, uint64_t savedRtcUs, uint64_t rtcNowUs, int64_t& out);
+// Unix time of local noon on a day index: what a date confirmed by hand sets
+// the clock to (the day, not the hour, is what matters).
+int64_t noonOfDay(uint32_t dayIndex, int16_t offsetMinutes);
 
 // Days since 2000-01-01 of the local day containing nowUnix, where local time
 // is UTC + offsetMinutes. Same day numbering as FlashcardSrs::parseDateStr().
