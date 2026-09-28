@@ -33,6 +33,7 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/flashcard/FlashcardClockKeeper.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -310,6 +311,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   halTiltSensor.deepSleep();
   display.deepSleep();
   Storage.prepareForDeepSleep();
+  FlashcardClockKeeper::beforeSleep();  // X4 has no RTC chip: keep the flashcard date
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
@@ -386,6 +388,7 @@ void setup() {
 #endif
 
   HalSystem::begin();
+  FlashcardClockKeeper::afterBoot();  // before anything reads the time
   // checkPanic() clears the watchdog capture marker after a successful SD
   // dump, so retain the boot classification for the later activity route.
   const bool rebootedFromPanic = HalSystem::isRebootFromPanic();
@@ -434,6 +437,7 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+  FlashcardClockKeeper::logBoot();
 
   APP_STATE.loadFromFile();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;

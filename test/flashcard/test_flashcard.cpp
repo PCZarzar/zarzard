@@ -1283,6 +1283,24 @@ static void testStatsScan(const std::string& root) {
   fs::remove_all(fc);
 }
 
+static void testRestoreAfterSleep() {
+  using FlashcardClock::restoreAfterSleep;
+  const int64_t slept = 1790551831;  // 2026-09-27, valid
+  int64_t out = 0;
+  // 8 h asleep, counter kept running: the date comes back
+  CHECK_EQ(restoreAfterSleep(slept, 5000000ULL, 5000000ULL + 8ULL * 3600 * 1000000, out), true);
+  CHECK_EQ(out, slept + 8 * 3600);
+  CHECK_EQ(restoreAfterSleep(slept, 7, 7, out), true);  // woke at once
+  CHECK_EQ(out, slept);
+  // Counter went back: power was cut, nothing to trust
+  CHECK_EQ(restoreAfterSleep(slept, 9000000ULL, 1000ULL, out), false);
+  // Saved time was never valid (clock not synced before sleeping)
+  CHECK_EQ(restoreAfterSleep(1000, 0, 1000000, out), false);
+  // Implausible gap
+  CHECK_EQ(restoreAfterSleep(slept, 0, 401ULL * 86400 * 1000000, out), false);
+  CHECK_EQ(restoreAfterSleep(slept, 0, 399ULL * 86400 * 1000000, out), true);
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
@@ -1290,6 +1308,7 @@ int main(int argc, char** argv) {
   testLinearResume();
   testCatalog(Storage.root);
   testFreeDays();
+  testRestoreAfterSleep();
   testWholeFolder(Storage.root);
   testStreamingParserMatchesReference(Storage.root);
   testLowMemory(Storage.root);

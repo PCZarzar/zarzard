@@ -24,6 +24,13 @@ enum class State : uint8_t {
 
 State evaluate(int64_t nowUnix, uint32_t lastSyncUnix);
 
+// Wall time after a deep sleep that lost the system clock but kept the RTC
+// counter running: the time saved just before sleeping plus the RTC time that
+// passed since. False when the saved time was not valid, the counter went
+// back (power was cut) or the gap is implausible (over MAX_SLEEP_DAYS).
+constexpr int64_t MAX_SLEEP_DAYS = 400;
+bool restoreAfterSleep(int64_t savedUnix, uint64_t savedRtcUs, uint64_t rtcNowUs, int64_t& out);
+
 // Days since 2000-01-01 of the local day containing nowUnix, where local time
 // is UTC + offsetMinutes. Same day numbering as FlashcardSrs::parseDateStr().
 uint32_t dayIndex(int64_t nowUnix, int16_t offsetMinutes);
