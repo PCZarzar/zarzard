@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "FlashcardCardActions.h"
 #include "FlashcardDeck.h"
 #include "FlashcardFolderIndex.h"
 #include "FlashcardLinearSession.h"
@@ -45,8 +46,9 @@ class FlashcardReviewActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class CardState { Front, Back, Summary };
-  enum class SummaryOption { Repeat, Full, NextDeck, Exit };
+  enum class CardState { Front, Back, Summary, Menu, ConfirmDelete, ConfirmDeleteMarked };
+  enum class SummaryOption { Repeat, Full, DeleteMarked, NextDeck, Exit };
+  enum class MenuItem { ToggleMark, Suspend, Skip, Reset, Delete };
 
   void flipCard();
   void rateCard(SrsRating rating);
@@ -66,6 +68,25 @@ class FlashcardReviewActivity final : public Activity {
   const std::string& displayName() const;
   uint16_t cardSeconds();
   const char* doneMessage() const;
+
+  // Card actions (hold side Up: mark, hold side Down: menu).
+  bool onCardScreen() const { return cardState == CardState::Front || cardState == CardState::Back; }
+  bool handleHold();
+  void openMenu();
+  void loopMenu();
+  void loopConfirm();
+  FlashcardCard* currentCard();
+  bool canChangeCards() const;
+  void doCardAction(FlashcardCardAction action);
+  void toggleMark();
+  void skipCard();
+  // Takes the card on screen out of this session and shows the next one.
+  void removeCurrentFromSession(bool deckChanged);
+  void afterCardRemoved();
+  size_t markedInSession() const;
+  void deleteMarked();
+  void renderMenu();
+  void renderConfirm();
   void renderCard(const FlashcardCard& card);
   void renderSummary();
 
@@ -83,6 +104,19 @@ class FlashcardReviewActivity final : public Activity {
   size_t folderCardIndex = SIZE_MAX;
   bool folderCardOk = false;
   unsigned long cardShownMs = 0;  // when the current card appeared (study time)
+
+  // Linear over one deck: the cards reviewed (not suspended), by position.
+  std::vector<size_t> linearMap;
+  // Linear: cards were suspended or deleted, so the saved pass no longer
+  // matches the deck; it is cleared instead of saved.
+  bool structureChanged = false;
+  // Whole folder / difficult cards: changes to apply to the deck files on exit
+  // (their record positions must stay valid while the session reads them).
+  std::vector<FlashcardCardActions::Pending> pendingActions;
+  std::vector<MenuItem> menuItems;
+  int menuSelected = 0;
+  CardState menuReturn = CardState::Front;
+  const char* statusMsg = nullptr;  // one-line note over the next card
 
   // Spaced mode
   std::vector<size_t> reviewQueue;

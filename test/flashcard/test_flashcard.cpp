@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "FlashcardCardActions.h"
 #include "FlashcardCatalog.h"
 #include "FlashcardClock.h"
 #include "FlashcardDeck.h"
@@ -1299,6 +1300,209 @@ static void testNoonOfDay() {
            true);
 }
 
+// ─── Card flags and actions ──────────────────────────────────────────────────
+
+static void testCardFlags(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc);
+  const uint32_t today = FlashcardSrs::parseDateStr("28/09/2026");
+  // Old six-column deck: loads with no flags, saves with the flags column
+  std::string old = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+  old += "1,a,A,,,\n2,b,B,01/09/2026,3,250\n3,\"c, quoted\",C,,,\n4,d,D,,,\n";
+  std::ofstream(fc + "/d.csv", std::ios::binary) << old;
+  FlashcardDeck d;
+  CHECK_EQ(d.loadFromCsv("/flashcard/d.csv"), true);
+  CHECK_EQ(d.getCards().size(), (size_t)4);
+  bool noFlags = true;
+  for (const auto& c : d.getCards()) noFlags &= c.flags == 0;
+  CHECK_EQ(noFlags, true);
+  const uint32_t fpBefore = d.contentFingerprint();
+  CHECK_EQ(d.fingerprintOf(d.activeIndices()), fpBefore);
+  // Actions in RAM
+  FlashcardCardActions::apply(d.getCards()[0], FlashcardCardAction::Mark);
+  FlashcardCardActions::apply(d.getCards()[1], FlashcardCardAction::Suspend);
+  FlashcardCardActions::apply(d.getCards()[2], FlashcardCardAction::Delete);
+  FlashcardCardActions::apply(d.getCards()[3], FlashcardCardAction::Mark);
+  FlashcardCardActions::apply(d.getCards()[3], FlashcardCardAction::Suspend);
+  CHECK_EQ(d.contentFingerprint(), fpBefore);  // flags are not content
+  CHECK_EQ(d.activeIndices(), (std::vector<size_t>{0}));
+  CHECK_EQ(d.buildReviewQueue(today, 10, 250), (std::vector<size_t>{0}));
+  DeckStats st = d.getStats(today);
+  CHECK_EQ(st.totalCards, (uint16_t)3);  // the deleted card is gone
+  CHECK_EQ(st.newCards, (uint16_t)1);
+  CHECK_EQ(st.dueCards, (uint16_t)0);
+  CHECK_EQ(st.suspendedCards, (uint16_t)2);
+  CHECK_EQ(st.markedCards, (uint16_t)2);
+  CHECK_EQ(d.saveToCsv("/flashcard/d.csv"), true);
+  const std::string saved = slurp(fc + "/d.csv");
+  CHECK_EQ(saved.rfind("card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n", 0), (size_t)0);
+  CHECK_EQ(saved.find("c, quoted"), std::string::npos);             // deleted
+  CHECK_EQ(saved.find("1,a,A,,,,m\n") != std::string::npos, true);  // new card: three empty SRS columns
+  CHECK_EQ(saved.find("2,b,B,01/09/2026,3,250,s\n") != std::string::npos, true);
+  CHECK_EQ(saved.find("4,d,D,,,,ms\n") != std::string::npos, true);
+  // Reload: flags come back; the list scan agrees with the loaded deck
+  FlashcardDeck r;
+  CHECK_EQ(r.loadFromCsv("/flashcard/d.csv"), true);
+  CHECK_EQ(r.getCards().size(), (size_t)3);
+  CHECK_EQ(r.getCards()[0].isMarked(), true);
+  CHECK_EQ(r.getCards()[1].isSuspended(), true);
+  CHECK_EQ(r.getCards()[2].flags, (uint8_t)(FlashcardCard::FLAG_MARKED | FlashcardCard::FLAG_SUSPENDED));
+  DeckStats scan;
+  bool trunc = false;
+  CHECK_EQ(FlashcardDeck::scanStats("/flashcard/d.csv", today, scan, trunc), true);
+  const DeckStats want = r.getStats(today);
+  CHECK_EQ(scan.totalCards, want.totalCards);
+  CHECK_EQ(scan.newCards, want.newCards);
+  CHECK_EQ(scan.dueCards, want.dueCards);
+  CHECK_EQ(scan.suspendedCards, want.suspendedCards);
+  CHECK_EQ(scan.markedCards, want.markedCards);
+  FlashcardStatsScan::DeckResult sr;
+  CHECK_EQ(FlashcardStatsScan::scanDeck("/flashcard/d.csv", today, sr, nullptr, nullptr), true);
+  CHECK_EQ(sr.phases.total(), (uint32_t)1);  // suspended cards have no phase
+  CHECK_EQ(sr.stats.suspendedCards, (uint16_t)2);
+  // Unsuspend / unmark / reset
+  FlashcardCardActions::apply(r.getCards()[1], FlashcardCardAction::Unsuspend);
+  FlashcardCardActions::apply(r.getCards()[1], FlashcardCardAction::Reset);
+  FlashcardCardActions::apply(r.getCards()[0], FlashcardCardAction::Unmark);
+  CHECK_EQ(r.getCards()[1].isActive(), true);
+  CHECK_EQ(r.getCards()[1].isNew(), true);
+  CHECK_EQ(r.getCards()[0].flags, (uint8_t)0);
+  // Seventh column: quoted or garbage values are ignored, extra columns still skipped
+  std::string odd = "h\n1,a,A,,,,x\n2,b,B,,,,\"m\"\n3,c,C,,,,s,extra,more\n4,d,D,,,\n";
+  std::ofstream(fc + "/o.csv", std::ios::binary) << odd;
+  FlashcardDeck o;
+  CHECK_EQ(o.loadFromCsv("/flashcard/o.csv"), true);
+  CHECK_EQ(o.getCards().size(), (size_t)4);
+  CHECK_EQ(o.getCards()[0].flags, (uint8_t)0);
+  CHECK_EQ(o.getCards()[1].flags, (uint8_t)0);
+  CHECK_EQ(o.getCards()[2].isSuspended(), true);
+  CHECK_EQ(o.getCards()[3].frontContent, std::string("d"));
+  fs::remove_all(fc);
+}
+
+static void testCardActionsOnFiles(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc + "/F");
+  auto put = [&](const std::string& rel, int n) {
+    std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+    for (int i = 1; i <= n; ++i)
+      csv += std::to_string(i) + ",f" + std::to_string(i) + ",b" + std::to_string(i) + ",01/09/2026,2,150\n";
+    std::ofstream(fc + "/" + rel, std::ios::binary) << csv;
+  };
+  put("F/x.csv", 5);
+  put("F/y.csv", 3);
+  // Offsets as the folder index sees them
+  FlashcardFolderIndex idx;
+  CHECK_EQ(idx.build(FlashcardDeck::listDecks("/flashcard/F")), true);
+  CHECK_EQ(idx.size(), (size_t)8);
+  std::string path;
+  uint32_t off = 0;
+  std::vector<FlashcardCardActions::Pending> acts;
+  auto add = [&](size_t i, FlashcardCardAction a) {
+    CHECK_EQ(idx.refOf(i, path, off), true);
+    acts.push_back({path, off, a});
+  };
+  add(0, FlashcardCardAction::Mark);                                            // x f1
+  add(1, FlashcardCardAction::Delete);                                          // x f2
+  add(2, FlashcardCardAction::Suspend);                                         // x f3
+  add(5, FlashcardCardAction::Mark);                                            // y f1
+  add(5, FlashcardCardAction::Unmark);                                          // ...then unmarked again
+  add(6, FlashcardCardAction::Delete);                                          // y f2
+  acts.push_back({"/flashcard/F/y.csv", 999999, FlashcardCardAction::Delete});  // stale: skipped
+  acts.push_back({"/flashcard/F/none.csv", 0, FlashcardCardAction::Mark});      // missing deck: skipped
+  CHECK_EQ(FlashcardCardActions::applyToFiles(acts), (size_t)6);
+  FlashcardDeck x, y;
+  CHECK_EQ(x.loadFromCsv("/flashcard/F/x.csv"), true);
+  CHECK_EQ(y.loadFromCsv("/flashcard/F/y.csv"), true);
+  CHECK_EQ(x.getCards().size(), (size_t)4);
+  CHECK_EQ(x.getCards()[0].isMarked(), true);
+  CHECK_EQ(x.getCards()[1].frontContent, std::string("f3"));
+  CHECK_EQ(x.getCards()[1].isSuspended(), true);
+  CHECK_EQ(x.getCards()[1].srs.ease, (uint16_t)150);  // SRS kept
+  CHECK_EQ(y.getCards().size(), (size_t)2);
+  CHECK_EQ(y.getCards()[0].flags, (uint8_t)0);
+  // The folder index now leaves the suspended card out and knows the mark
+  FlashcardFolderIndex again;
+  CHECK_EQ(again.build(FlashcardDeck::listDecks("/flashcard/F")), true);
+  CHECK_EQ(again.size(), (size_t)5);
+  CHECK_EQ(again.flagsOf(0), FlashcardCard::FLAG_MARKED);
+  FlashcardCard c;
+  CHECK_EQ(again.loadCard(1, c), true);
+  CHECK_EQ(c.frontContent, std::string("f4"));
+  // Difficult cards never include suspended ones
+  auto hard = FlashcardStatsScan::collectHard({"/flashcard/F/x.csv", "/flashcard/F/y.csv"});
+  bool noSuspended = true;
+  for (const auto& h : hard) noSuspended &= !(h.path == "/flashcard/F/x.csv" && h.front == "f3");
+  CHECK_EQ(noSuspended, true);
+  CHECK_EQ(hard.size(), (size_t)5);
+  // Clean-up list: marked and suspended cards, in deck order
+  auto flagged = FlashcardCardActions::collectFlagged({"/flashcard/F/x.csv", "/flashcard/F/y.csv"}, 100);
+  CHECK_EQ(flagged.size(), (size_t)2);
+  if (flagged.size() == 2) {
+    CHECK_EQ(flagged[0].front, std::string("f1"));
+    CHECK_EQ(flagged[0].flags, FlashcardCard::FLAG_MARKED);
+    CHECK_EQ(flagged[1].front, std::string("f3"));
+    CHECK_EQ(flagged[1].deckName, std::string("x"));
+    // Acting from the list: its offsets are the file's
+    CHECK_EQ(FlashcardCardActions::applyToFiles({{flagged[1].path, flagged[1].offset, FlashcardCardAction::Unsuspend}}),
+             (size_t)1);
+  }
+  CHECK_EQ(FlashcardCardActions::collectFlagged({"/flashcard/F/x.csv"}, 100).size(), (size_t)1);
+  CHECK_EQ(FlashcardCardActions::collectFlagged({"/flashcard/F/x.csv"}, 0).size(), (size_t)0);
+  // A deck over the card limit is never rewritten
+  std::string big = "h\n";
+  for (int i = 1; i <= 505; ++i) big += std::to_string(i) + ",q,a,,,\n";
+  std::ofstream(fc + "/big.csv", std::ios::binary) << big;
+  FlashcardDeck b;
+  b.loadFromCsv("/flashcard/big.csv");
+  CHECK_EQ(
+      FlashcardCardActions::applyToFiles({{"/flashcard/big.csv", b.getCards()[0].offset, FlashcardCardAction::Delete}}),
+      (size_t)0);
+  CHECK_EQ(slurp(fc + "/big.csv"), big);
+  fs::remove_all(fc);
+}
+
+static void testLinearExclude() {
+  FlashcardLinearSession s;
+  s.start(6, false, 1);        // queue 0..5 in order
+  s.mark(LinearPile::Known);   // 0
+  s.mark(LinearPile::Missed);  // 1
+  CHECK_EQ(s.current(), (size_t)2);
+  s.exclude(2);  // the card on screen
+  CHECK_EQ(s.current(), (size_t)3);
+  CHECK_EQ(s.passSize(), (size_t)5);
+  s.exclude(5);  // later in the pass
+  CHECK_EQ(s.passSize(), (size_t)4);
+  s.exclude(1);  // already sorted (Missed)
+  CHECK_EQ(s.missedCount(), (size_t)0);
+  CHECK_EQ(s.passSize(), (size_t)3);
+  CHECK_EQ(s.current(), (size_t)3);
+  // The pass state is still consistent (restorable)
+  FlashcardLinearSession t;
+  CHECK_EQ(t.restore(s.exportState(), 6, false), true);
+  s.mark(LinearPile::Unsure);  // 3
+  s.mark(LinearPile::Known);   // 4
+  CHECK_EQ(s.passDone(), true);
+  s.startFullPass(7);
+  auto q = s.passQueue();
+  std::sort(q.begin(), q.end());
+  CHECK_EQ(q, (std::vector<size_t>{0, 3, 4}));  // excluded cards never come back
+  s.mark(LinearPile::Missed);
+  s.mark(LinearPile::Missed);
+  s.mark(LinearPile::Missed);
+  s.startRepeatPass(3);
+  q = s.passQueue();
+  std::sort(q.begin(), q.end());
+  CHECK_EQ(q, (std::vector<size_t>{0, 3, 4}));
+  s.exclude(3);
+  s.exclude(3);  // twice: no effect
+  CHECK_EQ(s.passSize(), (size_t)2);
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
@@ -1316,6 +1520,9 @@ int main(int argc, char** argv) {
   testHistory(Storage.root);
   testPeriods();
   testStatsScan(Storage.root);
+  testCardFlags(Storage.root);
+  testCardActionsOnFiles(Storage.root);
+  testLinearExclude();
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();

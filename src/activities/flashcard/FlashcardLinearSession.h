@@ -78,6 +78,36 @@ class FlashcardLinearSession {
 
   bool canRepeat() const { return !missed.empty() || !unsure.empty(); }
 
+  // Takes a card out of this session (suspended or deleted): it leaves the
+  // rest of the current pass, the piles and every later pass. The card on
+  // screen can be removed; so can one already sorted in this pass.
+  void exclude(size_t idx) {
+    if (std::find(excluded.begin(), excluded.end(), idx) != excluded.end()) return;
+    excluded.push_back(idx);
+    for (size_t i = position; i < queue.size();) {
+      if (queue[i] == idx) {
+        queue.erase(queue.begin() + static_cast<std::ptrdiff_t>(i));
+      } else {
+        ++i;
+      }
+    }
+    for (std::vector<size_t>* pile : {&missed, &unsure, &known}) {
+      const auto it = std::find(pile->begin(), pile->end(), idx);
+      if (it == pile->end()) continue;
+      pile->erase(it);
+      // It was sorted earlier in this pass: drop it from the sorted part too.
+      for (size_t i = 0; i < position; ++i) {
+        if (queue[i] == idx) {
+          queue.erase(queue.begin() + static_cast<std::ptrdiff_t>(i));
+          --position;
+          break;
+        }
+      }
+    }
+  }
+  bool isExcluded(size_t idx) const { return std::find(excluded.begin(), excluded.end(), idx) != excluded.end(); }
+  size_t excludedCount() const { return excluded.size(); }
+
   bool passDone() const { return position >= queue.size(); }
   size_t current() const { return queue[position]; }
 
@@ -109,6 +139,7 @@ class FlashcardLinearSession {
  private:
   void beginPass(std::vector<size_t>&& cards, uint32_t seed) {
     queue = std::move(cards);
+    queue.erase(std::remove_if(queue.begin(), queue.end(), [this](size_t i) { return isExcluded(i); }), queue.end());
     if (shuffle) {
       std::minstd_rand rng(seed ? seed : 1);
       std::shuffle(queue.begin(), queue.end(), rng);
@@ -128,4 +159,5 @@ class FlashcardLinearSession {
   std::vector<size_t> missed;
   std::vector<size_t> unsure;
   std::vector<size_t> known;
+  std::vector<size_t> excluded;  // taken out this session; not saved (the deck changed anyway)
 };

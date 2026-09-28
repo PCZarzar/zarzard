@@ -154,6 +154,20 @@ Test deck `test/decks/lpic_test.csv`:
   interval/3 days earlier when possible (e.g. interval ≥ 3 → Saturday instead of
   Sunday), otherwise later (Monday). Again (due today) is never moved. Cards that were
   already due on a free day before the setting existed show up the next study day.
+- **Card actions (user request: clean up AI-generated decks).** During any review, holding
+  the upper side button (≥ 700 ms) marks/unmarks the card (a small flag shows); holding the
+  lower one opens the card menu: Mark, Suspend (out of every review, kept in the deck), Skip for
+  now (this session only), Reset (new again) and Delete (confirmed). Short presses keep their
+  rating role (the release after a hold is swallowed by `MappedInputManager::wasLongPressed`).
+  Flags live in an optional **seventh CSV column** `flags` (`m` marked, `s` suspended); a quoted
+  seventh field is skipped like before, so record boundaries match the original parser. Lists,
+  planner, statistics, whole-folder and difficult-card indexes ignore suspended cards. One deck
+  in RAM is saved at once (Spaced with its usual batch); a whole folder / difficult cards
+  session queues the changes and writes each deck on exit (record offsets must stay valid
+  while it reads). Suspending or deleting in Linear clears that deck's saved pass (the deck
+  changed). The pass summary offers "Delete marked cards"; *Settings → Marked and suspended*
+  lists them by deck (80 at a time) with per-card and per-deck actions. Spaced review shows
+  "i/n" in the header like Linear.
 - **Spaced review planning (user request, Anki-like).** *Settings → Spaced review*
   holds the daily new-card **total** (5–100), max reviews per deck session, free days
   and **Decks**. Each deck has a state — *Active* (new + due), *Reviews only* (due),

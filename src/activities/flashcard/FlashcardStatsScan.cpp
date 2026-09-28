@@ -54,6 +54,12 @@ bool scanDeck(const std::string& path, const uint32_t today, DeckResult& out, ui
       break;
     }
     ++out.stats.totalCards;
+    const uint8_t flags = rec.flagBits();
+    if (flags & FlashcardCard::FLAG_MARKED) ++out.stats.markedCards;
+    if (flags & FlashcardCard::FLAG_SUSPENDED) {
+      ++out.stats.suspendedCards;  // out of reviews: no phase, forecast or difficulty
+      continue;
+    }
     const SrsState srs = rec.srs();
     if (srs.dueDate == 0) {
       ++out.stats.newCards;

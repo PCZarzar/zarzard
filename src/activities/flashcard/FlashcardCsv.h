@@ -18,11 +18,13 @@ class FlashcardCsvReader {
   static constexpr size_t MAX_FIELD_BYTES = 4096;  // longer fields are cut (sanity limit)
 
   struct Record {
-    std::string id, front, back, due, interval, ease;
+    std::string id, front, back, due, interval, ease, flags;
     uint32_t offset = 0;  // file position where the record starts
 
     // SRS columns: all three present (ease clamped to 130..400), else a new card.
     SrsState srs() const;
+    // Optional seventh column: 'm' marked, 's' suspended (FlashcardCard::FLAG_*).
+    uint8_t flagBits() const;
   };
 
   // Reads `file` from its current position; `startOffset` is that position.

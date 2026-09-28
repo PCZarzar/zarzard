@@ -98,9 +98,23 @@ bool FlashcardCsvReader::next(Record& rec) {
   readField(rec.due);
   readField(rec.interval);
   readField(rec.ease);
-  while ((c = peek()) != '\0' && c != '\n') get();  // anything after the sixth field
+  rec.flags.clear();
+  // Optional seventh field (flags), never quoted when written. A quoted one
+  // is skipped with the rest of the line, as before flags existed, so record
+  // boundaries stay exactly those of the original parser.
+  if ((c = peek()) != '\0' && c != '\r' && c != '\n' && c != '"') readField(rec.flags);
+  while ((c = peek()) != '\0' && c != '\n') get();  // anything after the seventh field
   if (peek() == '\n') get();
   return true;
+}
+
+uint8_t FlashcardCsvReader::Record::flagBits() const {
+  uint8_t bits = 0;
+  for (const char c : flags) {
+    if (c == 'm') bits |= 1;  // FlashcardCard::FLAG_MARKED
+    if (c == 's') bits |= 2;  // FlashcardCard::FLAG_SUSPENDED
+  }
+  return bits;
 }
 
 SrsState FlashcardCsvReader::Record::srs() const {

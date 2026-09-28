@@ -25,6 +25,7 @@
 
 namespace {
 constexpr uint8_t SAVE_EVERY_RATINGS = 5;
+constexpr unsigned long HOLD_MS = 700;  // side button held this long: card action
 
 FlashcardLayout::CardArea cardArea(const GfxRenderer& renderer) {
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -76,6 +77,8 @@ void FlashcardReviewActivity::onEnter() {
     shuffle = true;  // a whole folder is always studied fully shuffled
   } else {
     deckLoaded = deck.loadFromCsv(deckPath.c_str());
+    // Linear reviews the cards that are not suspended, by position.
+    if (deckLoaded && mode == ReviewMode::Linear) linearMap = deck.activeIndices();
   }
   cardState = CardState::Front;
 
@@ -137,13 +140,25 @@ void FlashcardReviewActivity::onExit() {
   // Also runs when the device goes to sleep mid-session: keep every rating
   // and the linear position.
   if (mode == ReviewMode::Spaced && (unsavedRatings > 0 || newQuotaDirty)) saveProgress();
-  if (mode == ReviewMode::Linear && linearDirty) saveLinearProgress();
+  if (mode == ReviewMode::Linear && (linearDirty || structureChanged)) saveLinearProgress();
+  if (!pendingActions.empty()) {
+    FlashcardCardActions::applyToFiles(pendingActions);
+    pendingActions.clear();
+  }
   FlashcardHistory::flush();
   Activity::onExit();
 }
 
 void FlashcardReviewActivity::saveLinearProgress() {
   if (!deckLoaded) return;
+  if (structureChanged) {
+    // Cards were taken out of the deck: this pass cannot be resumed against it.
+    FlashcardLinearProgress::clear(deckPath);
+    FlashcardHistory::flush();
+    linearDirty = false;
+    marksSinceSave = 0;
+    return;
+  }
   FlashcardLinearProgress::Saved saved;
   saved.fingerprint = linearFingerprint();
   saved.state = linear.exportState();
@@ -157,14 +172,23 @@ void FlashcardReviewActivity::saveLinearProgress() {
 // ─── Input ───────────────────────────────────────────────────────────────────
 
 void FlashcardReviewActivity::loop() {
+  if (mode == ReviewMode::Spaced && pendingSave) {
+    saveProgress();
+    pendingSave = false;
+  }
+  if (cardState == CardState::Menu) {
+    loopMenu();
+    return;
+  }
+  if (cardState == CardState::ConfirmDelete || cardState == CardState::ConfirmDeleteMarked) {
+    loopConfirm();
+    return;
+  }
+  if (onCardScreen() && handleHold()) return;
+
   if (mode == ReviewMode::Linear) {
     loopLinear();
     return;
-  }
-
-  if (pendingSave) {
-    saveProgress();
-    pendingSave = false;
   }
 
   if (reviewQueue.empty() || currentQueueIndex >= reviewQueue.size()) return;
@@ -246,6 +270,10 @@ void FlashcardReviewActivity::loopSummary() {
       linear.startFullPass(esp_random());
       linearDirty = true;
       break;
+    case SummaryOption::DeleteMarked:
+      cardState = CardState::ConfirmDeleteMarked;
+      requestUpdate();
+      return;
     case SummaryOption::NextDeck:
       finishWithNextDeck();
       return;
@@ -267,11 +295,13 @@ void FlashcardReviewActivity::loopSummary() {
 // ─── State transitions ───────────────────────────────────────────────────────
 
 void FlashcardReviewActivity::flipCard() {
+  statusMsg = nullptr;
   cardState = CardState::Back;
   requestUpdate();
 }
 
 void FlashcardReviewActivity::rateCard(SrsRating rating) {
+  statusMsg = nullptr;
   const size_t cardIdx = reviewQueue[currentQueueIndex];
   auto& card = deck.getCards()[cardIdx];
   const bool wasNew = card.isNew();
@@ -342,12 +372,13 @@ void FlashcardReviewActivity::showDone() {
 }
 
 void FlashcardReviewActivity::markLinear(LinearPile pile) {
+  statusMsg = nullptr;
   linear.mark(pile);
   linearDirty = true;
   FlashcardHistory::recordLinear(FlashcardSrs::getToday(), cardSeconds());
   // Periodic save so a flat battery loses at most a few cards of progress.
   if (++marksSinceSave >= SAVE_EVERY_RATINGS) saveLinearProgress();
-  if (linear.passDone() && !wholeFolder && linear.passSize() == deck.getCards().size()) {
+  if (linear.passDone() && !wholeFolder && linear.passSize() == linearMap.size() - linear.excludedCount()) {
     // A full pass over the deck: its result is the deck's Linear mastery.
     FLASHCARD_DECK_OPTIONS.recordLinearPass(deckPath, linear.knownCount(), linear.passSize());
     FLASHCARD_DECK_OPTIONS.saveToFile();
@@ -376,12 +407,11 @@ uint16_t FlashcardReviewActivity::cardSeconds() {
   return static_cast<uint16_t>(std::min<unsigned long>(elapsed, FlashcardHistory::MAX_CARD_SECONDS));
 }
 
-size_t FlashcardReviewActivity::linearDeckSize() const {
-  return wholeFolder ? folderIndex.size() : deck.getCards().size();
-}
+size_t FlashcardReviewActivity::linearDeckSize() const { return wholeFolder ? folderIndex.size() : linearMap.size(); }
 
 uint32_t FlashcardReviewActivity::linearFingerprint() const {
-  return wholeFolder ? folderIndex.fingerprint() : deck.contentFingerprint();
+  // Over the reviewed cards: equal to the whole-deck hash when none is suspended.
+  return wholeFolder ? folderIndex.fingerprint() : deck.fingerprintOf(linearMap);
 }
 
 const std::string& FlashcardReviewActivity::displayName() const { return wholeFolder ? folderName : deck.getName(); }
@@ -401,9 +431,10 @@ void FlashcardReviewActivity::prepareLinearCard() {
 void FlashcardReviewActivity::buildSummaryOptions() {
   nextDeckName = nextDeckProvider().name;
   summaryOptions.clear();
-  summaryOptions.reserve(4);
+  summaryOptions.reserve(5);
   if (linear.canRepeat()) summaryOptions.push_back(SummaryOption::Repeat);
   summaryOptions.push_back(SummaryOption::Full);
+  if (markedInSession() > 0 && canChangeCards()) summaryOptions.push_back(SummaryOption::DeleteMarked);
   if (!nextDeckName.empty()) summaryOptions.push_back(SummaryOption::NextDeck);
   summaryOptions.push_back(SummaryOption::Exit);
   summarySelected = 0;
@@ -416,16 +447,324 @@ void FlashcardReviewActivity::finishWithNextDeck() {
   finish();
 }
 
+// ─── Card actions ────────────────────────────────────────────────────────────
+
+FlashcardCard* FlashcardReviewActivity::currentCard() {
+  if (mode == ReviewMode::Spaced) {
+    if (reviewQueue.empty() || currentQueueIndex >= reviewQueue.size()) return nullptr;
+    return &deck.getCards()[reviewQueue[currentQueueIndex]];
+  }
+  if (!deckLoaded || linear.passDone()) return nullptr;
+  if (wholeFolder) return folderCardOk ? &folderCard : nullptr;
+  return &deck.getCards()[linearMap[linear.current()]];
+}
+
+// A deck over the card limit cannot be saved; a whole folder saves each
+// card's own deck on exit (decks that cannot be saved are skipped there).
+bool FlashcardReviewActivity::canChangeCards() const { return deckLoaded && (wholeFolder || !deck.isTruncated()); }
+
+bool FlashcardReviewActivity::handleHold() {
+  if (!currentCard()) return false;
+  if (mappedInput.wasLongPressed(MappedInputManager::Button::Up, HOLD_MS)) {
+    toggleMark();
+    return true;
+  }
+  if (mappedInput.wasLongPressed(MappedInputManager::Button::Down, HOLD_MS)) {
+    openMenu();
+    return true;
+  }
+  return false;
+}
+
+void FlashcardReviewActivity::toggleMark() {
+  FlashcardCard* card = currentCard();
+  if (!card) return;
+  if (!canChangeCards()) {
+    statusMsg = tr(STR_FLASHCARD_ACTION_UNAVAILABLE);
+  } else {
+    const bool mark = !card->isMarked();
+    doCardAction(mark ? FlashcardCardAction::Mark : FlashcardCardAction::Unmark);
+    statusMsg = mark ? tr(STR_FLASHCARD_CARD_MARKED) : tr(STR_FLASHCARD_CARD_UNMARKED);
+  }
+  requestUpdate();
+}
+
+void FlashcardReviewActivity::openMenu() {
+  menuItems.clear();
+  if (canChangeCards()) {
+    menuItems = {MenuItem::ToggleMark, MenuItem::Suspend, MenuItem::Skip, MenuItem::Reset, MenuItem::Delete};
+  } else {
+    menuItems = {MenuItem::Skip};
+  }
+  menuSelected = 0;
+  menuReturn = cardState;
+  cardState = CardState::Menu;
+  requestUpdate();
+}
+
+void FlashcardReviewActivity::doCardAction(const FlashcardCardAction action) {
+  FlashcardCard* card = currentCard();
+  if (!card || !canChangeCards()) return;
+  const bool leaves = action == FlashcardCardAction::Suspend || action == FlashcardCardAction::Delete;
+  if (mode == ReviewMode::Spaced) {
+    FlashcardCardActions::apply(*card, action);
+    ++unsavedRatings;  // the deck is written with the next save
+    pendingSave = true;
+    // A reset card is new again: it comes back through the daily new cards.
+    if (leaves || action == FlashcardCardAction::Reset) removeCurrentFromSession(false);
+    return;
+  }
+  if (!wholeFolder) {
+    FlashcardCardActions::apply(*card, action);
+    if (!deck.saveToCsv(deckPath.c_str())) LOG_ERR("FCRV", "Failed to save %s", deckPath.c_str());
+  } else {
+    std::string path;
+    uint32_t offset = 0;
+    if (folderIndex.refOf(linear.current(), path, offset)) pendingActions.push_back({path, offset, action});
+    FlashcardCardActions::apply(folderCard, action);  // RAM copy of the card on screen
+    folderIndex.setFlags(linear.current(), folderCard.flags);
+  }
+  if (leaves) removeCurrentFromSession(true);
+}
+
+void FlashcardReviewActivity::skipCard() {
+  if (!currentCard()) return;
+  removeCurrentFromSession(false);
+}
+
+void FlashcardReviewActivity::removeCurrentFromSession(const bool deckChanged) {
+  if (mode == ReviewMode::Spaced) {
+    const size_t idx = reviewQueue[currentQueueIndex];
+    // Here and wherever a miss re-queued it later in the session.
+    for (size_t i = currentQueueIndex; i < reviewQueue.size();) {
+      if (reviewQueue[i] == idx) {
+        reviewQueue.erase(reviewQueue.begin() + static_cast<std::ptrdiff_t>(i));
+      } else {
+        ++i;
+      }
+    }
+  } else {
+    linear.exclude(linear.current());
+    if (deckChanged) {
+      structureChanged = true;
+    } else {
+      linearDirty = true;
+    }
+  }
+  afterCardRemoved();
+}
+
+void FlashcardReviewActivity::afterCardRemoved() {
+  cardState = CardState::Front;
+  cardShownMs = millis();
+  if (mode == ReviewMode::Spaced) {
+    if (currentQueueIndex >= reviewQueue.size()) {
+      saveProgress();
+      pendingSave = false;
+      showDone();
+      return;
+    }
+  } else if (linear.passDone()) {
+    buildSummaryOptions();
+    cardState = CardState::Summary;
+  } else {
+    prepareLinearCard();
+  }
+  requestUpdate();
+}
+
+size_t FlashcardReviewActivity::markedInSession() const {
+  if (mode != ReviewMode::Linear || !deckLoaded) return 0;
+  size_t n = 0;
+  const size_t count = linearDeckSize();
+  for (size_t j = 0; j < count; ++j) {
+    if (linear.isExcluded(j)) continue;
+    const bool marked =
+        wholeFolder ? (folderIndex.flagsOf(j) & FlashcardCard::FLAG_MARKED) : deck.getCards()[linearMap[j]].isMarked();
+    if (marked) ++n;
+  }
+  return n;
+}
+
+void FlashcardReviewActivity::deleteMarked() {
+  size_t n = 0;
+  const size_t count = linearDeckSize();
+  for (size_t j = 0; j < count; ++j) {
+    if (linear.isExcluded(j)) continue;
+    if (wholeFolder) {
+      if (!(folderIndex.flagsOf(j) & FlashcardCard::FLAG_MARKED)) continue;
+      std::string path;
+      uint32_t offset = 0;
+      if (folderIndex.refOf(j, path, offset)) pendingActions.push_back({path, offset, FlashcardCardAction::Delete});
+      folderIndex.setFlags(j, folderIndex.flagsOf(j) | FlashcardCard::FLAG_DELETED);
+    } else {
+      auto& card = deck.getCards()[linearMap[j]];
+      if (!card.isMarked()) continue;
+      FlashcardCardActions::apply(card, FlashcardCardAction::Delete);
+    }
+    linear.exclude(j);
+    ++n;
+  }
+  if (n > 0) {
+    structureChanged = true;
+    if (!wholeFolder && !deck.saveToCsv(deckPath.c_str())) LOG_ERR("FCRV", "Failed to save %s", deckPath.c_str());
+    statusMsg = tr(STR_FLASHCARD_MARKED_DELETED);
+  }
+  buildSummaryOptions();
+  cardState = CardState::Summary;
+  requestUpdate();
+}
+
+void FlashcardReviewActivity::loopMenu() {
+  const int count = static_cast<int>(menuItems.size());
+  buttonNavigator.onNext([this, count] {
+    menuSelected = ButtonNavigator::nextIndex(menuSelected, count);
+    requestUpdate();
+  });
+  buttonNavigator.onPrevious([this, count] {
+    menuSelected = ButtonNavigator::previousIndex(menuSelected, count);
+    requestUpdate();
+  });
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    cardState = menuReturn;
+    requestUpdate();
+    return;
+  }
+  if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm) || menuItems.empty()) return;
+  switch (menuItems[menuSelected]) {
+    case MenuItem::ToggleMark:
+      cardState = menuReturn;
+      toggleMark();
+      break;
+    case MenuItem::Suspend:
+      statusMsg = tr(STR_FLASHCARD_CARD_SUSPENDED);
+      doCardAction(FlashcardCardAction::Suspend);
+      break;
+    case MenuItem::Skip:
+      statusMsg = tr(STR_FLASHCARD_CARD_SKIPPED);
+      skipCard();
+      break;
+    case MenuItem::Reset:
+      statusMsg = tr(STR_FLASHCARD_CARD_RESET);
+      cardState = menuReturn;
+      doCardAction(FlashcardCardAction::Reset);
+      requestUpdate();
+      break;
+    case MenuItem::Delete:
+      cardState = CardState::ConfirmDelete;
+      requestUpdate();
+      break;
+  }
+}
+
+void FlashcardReviewActivity::loopConfirm() {
+  const bool single = cardState == CardState::ConfirmDelete;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    cardState = single ? CardState::Menu : CardState::Summary;
+    requestUpdate();
+    return;
+  }
+  if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm)) return;
+  if (single) {
+    statusMsg = tr(STR_FLASHCARD_CARD_DELETED);
+    cardState = menuReturn;
+    doCardAction(FlashcardCardAction::Delete);
+  } else {
+    deleteMarked();
+  }
+}
+
+void FlashcardReviewActivity::renderMenu() {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  renderer.clearScreen();
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str(),
+                 tr(STR_FLASHCARD_CARD_MENU));
+  int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const FlashcardCard* card = currentCard();
+  if (card) {
+    const std::string front =
+        renderer.truncatedText(UI_12_FONT_ID, card->frontMain().c_str(), pageWidth - metrics.contentSidePadding * 2);
+    renderer.drawCenteredText(UI_12_FONT_ID, y, front.c_str(), true, EpdFontFamily::BOLD);
+    y += renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
+  }
+  if (!canChangeCards()) {
+    renderer.drawCenteredText(SMALL_FONT_ID, y, tr(STR_FLASHCARD_ACTION_UNAVAILABLE));
+    y += renderer.getLineHeight(SMALL_FONT_ID) + 6;
+  }
+  FlashcardUi::Row rows[5];
+  const int n = static_cast<int>(std::min<size_t>(menuItems.size(), 5));
+  for (int i = 0; i < n; ++i) {
+    switch (menuItems[i]) {
+      case MenuItem::ToggleMark:
+        rows[i].title = card && card->isMarked() ? tr(STR_FLASHCARD_UNMARK) : tr(STR_FLASHCARD_MARK);
+        rows[i].subtitle = tr(STR_FLASHCARD_MARK_DESC);
+        break;
+      case MenuItem::Suspend:
+        rows[i].title = tr(STR_FLASHCARD_SUSPEND);
+        rows[i].subtitle = tr(STR_FLASHCARD_SUSPEND_DESC);
+        break;
+      case MenuItem::Skip:
+        rows[i].title = tr(STR_FLASHCARD_SKIP);
+        rows[i].subtitle = tr(STR_FLASHCARD_SKIP_DESC);
+        break;
+      case MenuItem::Reset:
+        rows[i].title = tr(STR_FLASHCARD_RESET_CARD);
+        rows[i].subtitle = tr(STR_FLASHCARD_RESET_DESC);
+        break;
+      case MenuItem::Delete:
+        rows[i].title = tr(STR_DELETE);
+        rows[i].subtitle = tr(STR_FLASHCARD_DELETE_DESC);
+        break;
+    }
+  }
+  const int bottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  FlashcardUi::drawRows(renderer, Rect{0, y, pageWidth, bottom - y}, rows, n, menuSelected);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  renderer.displayBuffer();
+}
+
+void FlashcardReviewActivity::renderConfirm() {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int midY = renderer.getScreenHeight() / 3;
+  renderer.clearScreen();
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str());
+  char title[64];
+  if (cardState == CardState::ConfirmDelete) {
+    snprintf(title, sizeof(title), "%s", tr(STR_FLASHCARD_DELETE_CONFIRM));
+  } else {
+    snprintf(title, sizeof(title), "%s (%u)", tr(STR_FLASHCARD_DELETE_MARKED_CONFIRM),
+             static_cast<unsigned>(markedInSession()));
+  }
+  renderer.drawCenteredText(UI_12_FONT_ID, midY, title, true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, midY + renderer.getLineHeight(UI_12_FONT_ID) + 8,
+                            tr(STR_FLASHCARD_CANNOT_UNDO));
+  const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_DELETE), "", "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  renderer.displayBuffer();
+}
+
 // ─── Render ──────────────────────────────────────────────────────────────────
 
 void FlashcardReviewActivity::render(RenderLock&&) {
+  if (cardState == CardState::Menu) {
+    renderMenu();
+    return;
+  }
+  if (cardState == CardState::ConfirmDelete || cardState == CardState::ConfirmDeleteMarked) {
+    renderConfirm();
+    return;
+  }
   if (mode == ReviewMode::Linear) {
     if (cardState == CardState::Summary) {
       renderSummary();
       return;
     }
     if (linear.passDone()) return;
-    renderCard(wholeFolder ? folderCard : deck.getCards()[linear.current()]);
+    renderCard(wholeFolder ? folderCard : deck.getCards()[linearMap[linear.current()]]);
     return;
   }
   if (reviewQueue.empty() || currentQueueIndex >= reviewQueue.size()) return;
@@ -442,11 +781,25 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
     snprintf(progress, sizeof(progress), "%s %u \xC2\xB7 %u/%u", tr(STR_FLASHCARD_PASS),
              static_cast<unsigned>(linear.pass()), static_cast<unsigned>(linear.shownPosition()),
              static_cast<unsigned>(linear.passSize()));
+  } else {
+    // Card i of the session (the queue grows when a card is missed).
+    snprintf(progress, sizeof(progress), "%u/%u", static_cast<unsigned>(currentQueueIndex + 1),
+             static_cast<unsigned>(reviewQueue.size()));
   }
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str(),
-                 progress[0] ? progress : nullptr);
+  // A card action's note takes the progress's place for one card.
+  const char* right = statusMsg ? statusMsg : (progress[0] ? progress : nullptr);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str(), right);
 
   const auto area = cardArea(renderer);
+  const int markTop = metrics.topPadding + metrics.headerHeight + 4;
+  if (card.isMarked()) {
+    // Small flag in the corner: this card is set aside for the clean-up list.
+    const int x = metrics.contentSidePadding;
+    renderer.fillRect(x, markTop, 2, 20, true);
+    const int xs[3] = {x + 2, x + 16, x + 2};
+    const int ys[3] = {markTop, markTop + 5, markTop + 10};
+    renderer.fillPolygon(xs, ys, 3, true);
+  }
   std::string mainText, hint;
   card.parseFront(mainText, hint);
 
@@ -513,12 +866,17 @@ void FlashcardReviewActivity::renderSummary() {
     renderer.drawText(UI_12_FONT_ID, cx + (colW - renderer.getTextWidth(UI_12_FONT_ID, val, EpdFontFamily::BOLD)) / 2,
                       y + line10 + 4, val, true, EpdFontFamily::BOLD);
   }
-  y += line10 + 4 + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing * 2;
+  y += line10 + 4 + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
+  if (statusMsg) renderer.drawCenteredText(SMALL_FONT_ID, y, statusMsg);
+  y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing / 2;
 
   char nextLabel[96] = "";
+  char deleteLabel[64] = "";
+  snprintf(deleteLabel, sizeof(deleteLabel), "%s (%u)", tr(STR_FLASHCARD_DELETE_MARKED),
+           static_cast<unsigned>(markedInSession()));
   snprintf(nextLabel, sizeof(nextLabel), "%s: %s", tr(STR_FLASHCARD_NEXT_DECK), nextDeckName.c_str());
-  FlashcardUi::Row rows[4];
-  const int count = static_cast<int>(summaryOptions.size());
+  FlashcardUi::Row rows[5];
+  const int count = static_cast<int>(std::min<size_t>(summaryOptions.size(), 5));
   for (int i = 0; i < count; ++i) {
     switch (summaryOptions[i]) {
       case SummaryOption::Repeat:
@@ -526,6 +884,9 @@ void FlashcardReviewActivity::renderSummary() {
         break;
       case SummaryOption::Full:
         rows[i].title = tr(STR_FLASHCARD_FULL_PASS);
+        break;
+      case SummaryOption::DeleteMarked:
+        rows[i].title = deleteLabel;
         break;
       case SummaryOption::NextDeck:
         rows[i].title = nextLabel;

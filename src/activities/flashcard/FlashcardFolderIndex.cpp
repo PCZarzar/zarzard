@@ -39,6 +39,11 @@ bool FlashcardFolderIndex::build(const std::vector<std::string>& deckPaths) {
     const uint16_t fileIndex = static_cast<uint16_t>(files.size());
     uint16_t nextId = 1;
     while (reader.next(rec)) {
+      const uint8_t flags = rec.flagBits();
+      if (flags & FlashcardCard::FLAG_SUSPENDED) {
+        nextId = static_cast<uint16_t>((rec.id.empty() ? nextId : atoi(rec.id.c_str())) + 1);
+        continue;  // out of reviews
+      }
       if (refs.size() >= MAX_CARDS) {
         truncated = true;
         break;
@@ -55,7 +60,7 @@ bool FlashcardFolderIndex::build(const std::vector<std::string>& deckPaths) {
       mix(hash, &id, sizeof(id));
       mix(hash, rec.front.c_str(), rec.front.size() + 1);
       mix(hash, rec.back.c_str(), rec.back.size() + 1);
-      refs.push_back(Ref{rec.offset, fileIndex});
+      refs.push_back(Ref{rec.offset, fileIndex, flags});
     }
     const bool complete = truncated || (!reader.failed() && reader.bytesRead() == fsize);
     if (!complete) {
@@ -76,27 +81,28 @@ bool FlashcardFolderIndex::buildFromRefs(const std::vector<CardRef>& cards) {
   truncated = false;
   const size_t n = std::min(cards.size(), MAX_CARDS);
   refs.reserve(n);
-  FlashcardCard card;
+  FlashcardCsvReader::Record rec;
   for (size_t i = 0; i < n; ++i) {
     const CardRef& c = cards[i];
     auto it = std::find(files.begin(), files.end(), c.path);
     const uint16_t fileIndex = static_cast<uint16_t>(it - files.begin());
     if (it == files.end()) files.push_back(c.path);
-    refs.push_back(Ref{c.offset, fileIndex});
+    refs.push_back(Ref{c.offset, fileIndex, 0});
     // Checks the position still points at a card (the CSV may have changed).
-    if (!loadCard(refs.size() - 1, card)) {
+    if (!readRecord(refs.size() - 1, rec) || (rec.flagBits() & FlashcardCard::FLAG_SUSPENDED)) {
       refs.pop_back();
       continue;
     }
+    refs.back().flags = rec.flagBits();
     mix(hash, &c.offset, sizeof(c.offset));
-    mix(hash, card.frontContent.c_str(), card.frontContent.size() + 1);
-    mix(hash, card.backContent.c_str(), card.backContent.size() + 1);
+    mix(hash, rec.front.c_str(), rec.front.size() + 1);
+    mix(hash, rec.back.c_str(), rec.back.size() + 1);
   }
   truncated = cards.size() > n;
   return !refs.empty();
 }
 
-bool FlashcardFolderIndex::loadCard(const size_t i, FlashcardCard& out) const {
+bool FlashcardFolderIndex::readRecord(const size_t i, FlashcardCsvReader::Record& rec) const {
   if (i >= refs.size()) return false;
   const Ref& ref = refs[i];
   HalFile file;
@@ -105,11 +111,25 @@ bool FlashcardFolderIndex::loadCard(const size_t i, FlashcardCard& out) const {
     return false;
   }
   FlashcardCsvReader reader(file, ref.offset);
+  return reader.next(rec);
+}
+
+bool FlashcardFolderIndex::loadCard(const size_t i, FlashcardCard& out) const {
   FlashcardCsvReader::Record rec;
-  if (!reader.next(rec)) return false;
+  if (!readRecord(i, rec)) return false;
+  const Ref& ref = refs[i];
   out.id = static_cast<uint16_t>(atoi(rec.id.c_str()));
   out.frontContent = std::string(rec.front);
   out.backContent = std::string(rec.back);
   out.srs = SrsState{};
+  out.flags = refs[i].flags;  // RAM copy: may hold a mark made this session
+  out.offset = ref.offset;
+  return true;
+}
+
+bool FlashcardFolderIndex::refOf(const size_t i, std::string& path, uint32_t& offset) const {
+  if (i >= refs.size()) return false;
+  path = files[refs[i].file];
+  offset = refs[i].offset;
   return true;
 }

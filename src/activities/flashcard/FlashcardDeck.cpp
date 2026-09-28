@@ -13,7 +13,7 @@
 #include "FlashcardMemory.h"
 
 static constexpr const char* TAG = "FlashcardDeck";
-static constexpr char CSV_HEADER[] = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+static constexpr char CSV_HEADER[] = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n";
 
 // ---------------------------------------------------------------------------
 // FlashcardCard helpers
@@ -203,6 +203,8 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
     card.frontContent = std::string(rec.front);
     card.backContent = std::string(rec.back);
     card.srs = rec.srs();
+    card.flags = rec.flagBits();
+    card.offset = rec.offset;
     cards.push_back(std::move(card));
   }
   if (reader.failed()) {
@@ -230,6 +232,12 @@ bool FlashcardDeck::scanStats(const char* path, const uint32_t today, DeckStats&
       break;
     }
     ++out.totalCards;
+    const uint8_t flags = rec.flagBits();
+    if (flags & FlashcardCard::FLAG_MARKED) ++out.markedCards;
+    if (flags & FlashcardCard::FLAG_SUSPENDED) {
+      ++out.suspendedCards;
+      continue;
+    }
     const SrsState srs = rec.srs();
     if (srs.dueDate == 0) {
       ++out.newCards;
@@ -286,6 +294,7 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
   char numBuf[16];
   for (const auto& card : cards) {
     if (!ok) break;
+    if (card.flags & FlashcardCard::FLAG_DELETED) continue;
     int n = snprintf(numBuf, sizeof(numBuf), "%u,", (unsigned)card.id);
     ok = ok && writeAll(numBuf, (size_t)n);
 
@@ -310,6 +319,11 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
     } else {
       ok = ok && writeAll(",,", 2);
     }
+    char flags[4] = ",";
+    size_t flagLen = 1;
+    if (card.isMarked()) flags[flagLen++] = 'm';
+    if (card.isSuspended()) flags[flagLen++] = 's';
+    ok = ok && writeAll(flags, flagLen);
     ok = ok && writeAll("\n", 1);
   }
 
@@ -340,8 +354,14 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
 
 DeckStats FlashcardDeck::getStats(uint32_t today) const {
   DeckStats stats;
-  stats.totalCards = (uint16_t)cards.size();
   for (const auto& card : cards) {
+    if (card.flags & FlashcardCard::FLAG_DELETED) continue;
+    ++stats.totalCards;
+    if (card.isMarked()) ++stats.markedCards;
+    if (card.isSuspended()) {
+      ++stats.suspendedCards;
+      continue;
+    }
     if (card.isNew()) {
       ++stats.newCards;
     } else if (card.isDue(today)) {
@@ -359,6 +379,7 @@ std::vector<size_t> FlashcardDeck::buildReviewQueue(uint32_t today, uint8_t newP
 
   for (size_t i = 0; i < cards.size(); ++i) {
     const FlashcardCard& c = cards[i];
+    if (!c.isActive()) continue;
     if (c.isNew()) {
       newCards.push_back(i);
     } else if (c.isDue(today)) {
@@ -403,6 +424,12 @@ uint16_t FlashcardDeck::spacedSessionSize(const DeckStats& stats, uint16_t newQu
 }
 
 uint32_t FlashcardDeck::contentFingerprint() const {
+  std::vector<size_t> all(cards.size());
+  for (size_t i = 0; i < cards.size(); ++i) all[i] = i;
+  return fingerprintOf(all);
+}
+
+uint32_t FlashcardDeck::fingerprintOf(const std::vector<size_t>& indices) const {
   uint32_t h = 2166136261u;  // FNV-1a
   auto mix = [&h](const void* data, size_t len) {
     const auto* p = static_cast<const uint8_t*>(data);
@@ -411,12 +438,30 @@ uint32_t FlashcardDeck::contentFingerprint() const {
       h *= 16777619u;
     }
   };
-  for (const auto& c : cards) {
+  for (const size_t i : indices) {
+    if (i >= cards.size()) continue;
+    const auto& c = cards[i];
     mix(&c.id, sizeof(c.id));
     mix(c.frontContent.data(), c.frontContent.size() + 1);  // include the NUL as a field separator
     mix(c.backContent.data(), c.backContent.size() + 1);
   }
   return h;
+}
+
+std::vector<size_t> FlashcardDeck::activeIndices() const {
+  std::vector<size_t> out;
+  out.reserve(cards.size());
+  for (size_t i = 0; i < cards.size(); ++i) {
+    if (cards[i].isActive()) out.push_back(i);
+  }
+  return out;
+}
+
+int FlashcardDeck::findByOffset(const uint32_t offset) const {
+  for (size_t i = 0; i < cards.size(); ++i) {
+    if (cards[i].offset == offset && !(cards[i].flags & FlashcardCard::FLAG_DELETED)) return static_cast<int>(i);
+  }
+  return -1;
 }
 
 bool FlashcardDeck::updateCard(size_t index, const SrsState& newState) {

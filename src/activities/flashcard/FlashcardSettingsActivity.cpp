@@ -9,6 +9,7 @@
 
 #include "FlashcardClockSync.h"
 #include "FlashcardDateActivity.h"
+#include "FlashcardFlaggedActivity.h"
 #include "FlashcardSpacedSettingsActivity.h"
 #include "FlashcardStore.h"
 #include "FlashcardUi.h"
@@ -18,10 +19,11 @@
 
 namespace {
 constexpr int ROW_SPACED = 0;
-constexpr int ROW_UTC_OFFSET = 1;
-constexpr int ROW_SHUFFLE = 2;
-constexpr int ROW_SYNC = 3;
-constexpr int ROW_COUNT = 4;
+constexpr int ROW_FLAGGED = 1;
+constexpr int ROW_UTC_OFFSET = 2;
+constexpr int ROW_SHUFFLE = 3;
+constexpr int ROW_SYNC = 4;
+constexpr int ROW_COUNT = 5;
 
 constexpr int UTC_OFFSET_STEP_MINUTES = 30;
 }  // namespace
@@ -62,6 +64,10 @@ void FlashcardSettingsActivity::loop() {
         if (dirty) FLASHCARD_STORE.saveToFile();
         dirty = false;
         startActivityForResult(std::make_unique<FlashcardSpacedSettingsActivity>(renderer, mappedInput),
+                               [this](const ActivityResult&) { requestUpdate(); });
+        return;
+      } else if (selectedIndex == ROW_FLAGGED) {
+        startActivityForResult(std::make_unique<FlashcardFlaggedActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) { requestUpdate(); });
         return;
       } else if (selectedIndex == ROW_SHUFFLE) {
@@ -114,6 +120,8 @@ void FlashcardSettingsActivity::render(RenderLock&&) {
   FlashcardUi::Row rows[ROW_COUNT];
   rows[ROW_SPACED].title = tr(STR_FLASHCARD_SPACED);
   rows[ROW_SPACED].value = spaced;
+  rows[ROW_FLAGGED].title = tr(STR_FLASHCARD_FLAGGED_TITLE);
+  rows[ROW_FLAGGED].subtitle = tr(STR_FLASHCARD_FLAGGED_DESC);
   rows[ROW_UTC_OFFSET].title = tr(STR_FLASHCARD_UTC_OFFSET);
   rows[ROW_UTC_OFFSET].value = utc;
   rows[ROW_SHUFFLE].title = tr(STR_FLASHCARD_SHUFFLE);

@@ -12,10 +12,18 @@ static constexpr const char* FLASHCARD_DIR = "/flashcard";
 // "\\" in frontContent is a literal backslash. A stray '\' is literal.
 // Line breaks encoded as "/n" in CSV, decoded on access.
 struct FlashcardCard {
+  // flags: saved in the CSV's optional seventh column ('m', 's'), except
+  // DELETED, which only exists in RAM until the deck is saved without the card.
+  static constexpr uint8_t FLAG_MARKED = 1;     // set aside by the user to decide later
+  static constexpr uint8_t FLAG_SUSPENDED = 2;  // left out of every review, kept in the deck
+  static constexpr uint8_t FLAG_DELETED = 4;
+
   uint16_t id = 0;
   std::string frontContent;  // raw stored content (may contain /n and \ hints \)
   std::string backContent;   // raw stored back text
   SrsState srs;
+  uint8_t flags = 0;
+  uint32_t offset = 0;  // where the card's record starts in the CSV it was loaded from
 
   // Split frontContent into main text and hint in one pass (both trimmed,
   // "\\" unescaped, /n replaced by newline). Hint is empty if absent.
@@ -26,12 +34,19 @@ struct FlashcardCard {
 
   bool isNew() const { return srs.dueDate == 0; }
   bool isDue(uint32_t today) const { return !isNew() && srs.dueDate <= today; }
+  bool isMarked() const { return flags & FLAG_MARKED; }
+  bool isSuspended() const { return flags & FLAG_SUSPENDED; }
+  // Takes part in reviews: not suspended, not deleted.
+  bool isActive() const { return !(flags & (FLAG_SUSPENDED | FLAG_DELETED)); }
 };
 
+// newCards and dueCards count active cards only; totalCards counts every card.
 struct DeckStats {
   uint16_t totalCards = 0;
   uint16_t newCards = 0;
   uint16_t dueCards = 0;
+  uint16_t suspendedCards = 0;
+  uint16_t markedCards = 0;
 };
 
 class FlashcardDeck {
@@ -56,12 +71,21 @@ class FlashcardDeck {
   static std::string displayNameForPath(const std::string& path);
 
   // Atomically write deck to CSV: write to .tmp, remove original, rename.
-  // Refuses to write a truncated deck (would drop the cards past the limit).
+  // Cards flagged DELETED are left out. Refuses to write a truncated deck
+  // (would drop the cards past the limit).
   bool saveToCsv(const char* path) const;
 
-  // Hash of every card's id, front and back (not the SRS columns), so saved
-  // linear progress can tell whether the deck's cards changed.
+  // Hash of every card's id, front and back (not the SRS columns nor flags), so
+  // saved linear progress can tell whether the deck's cards changed.
   uint32_t contentFingerprint() const;
+  // Same hash over some cards only (Linear review skips suspended cards); equal
+  // to contentFingerprint() when `indices` lists every card in order.
+  uint32_t fingerprintOf(const std::vector<size_t>& indices) const;
+
+  // Indices of the cards that take part in reviews, in deck order.
+  std::vector<size_t> activeIndices() const;
+  // Index of the card whose record started at `offset` when loaded; -1 if none.
+  int findByOffset(uint32_t offset) const;
 
   // True when the CSV had more than MAX_CARDS_PER_DECK cards.
   bool isTruncated() const { return truncated; }
