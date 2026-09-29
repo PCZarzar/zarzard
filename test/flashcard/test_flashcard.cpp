@@ -1110,7 +1110,8 @@ static void testHistory(const std::string& root) {
   bool ascending = true;
   for (size_t i = 1; i < recs.size(); ++i) ascending &= recs[i - 1].day < recs[i].day;
   CHECK_EQ(ascending, true);
-  CHECK_EQ(FlashcardHistory::readRange(d1 + 2, d1 + 2)[0].linearCards, (uint16_t)2);
+  const auto oneDay = FlashcardHistory::readRange(d1 + 2, d1 + 2);  // kept alive for the check
+  CHECK_EQ(oneDay.empty() ? 0 : oneDay[0].linearCards, (uint16_t)2);
 
   // A torn write at the end (partial record) is ignored and dropped by the next flush
   const uint32_t before = fileSize(file);

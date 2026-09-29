@@ -31,6 +31,7 @@ class FlashcardStore : public PersistableStore<FlashcardStore> {
   int16_t utcOffsetMinutes = -180;  // local day boundary; X4 hides CrossPoint's clock offset
   uint32_t lastSyncUnix = 0;        // last NTP sync or date confirmed by hand (UTC seconds), 0 = never
   uint32_t lastSeenDay = 0;         // last day the date was known (day index): suggested after a wake
+  uint32_t lastNtpDay = 0;          // day of the last Wi-Fi sync: a hand-confirmed date never goes before it
 };
 
 #define FLASHCARD_STORE FlashcardStore::getInstance()

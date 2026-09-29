@@ -6,7 +6,8 @@
 
 // "Today's date": the X4 forgets the date every time it sleeps, so after a
 // wake the day is confirmed by hand (offered: the last day the date was
-// known; Left/Right change it, never before that day) or synced over Wi-Fi.
+// known; Left/Right change it, never before the last Wi-Fi sync) or synced
+// over Wi-Fi.
 class FlashcardDateActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   uint32_t day = 0;

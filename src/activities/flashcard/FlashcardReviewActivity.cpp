@@ -93,7 +93,7 @@ void FlashcardReviewActivity::onEnter() {
       }
       if (!restored) LOG_INF("FCRV", "Saved linear pass unusable (deck changed?), starting over: %s", deckPath.c_str());
     }
-    if (!deckLoaded) {
+    if (!deckLoaded || linearDeckSize() == 0) {
       showDone();  // explains why there is nothing to study
       return;
     }
@@ -414,6 +414,7 @@ void FlashcardReviewActivity::markLinear(LinearPile pile) {
 }
 
 const char* FlashcardReviewActivity::doneMessage() const {
+  if (deckLoaded && mode == ReviewMode::Linear && linearDeckSize() == 0) return tr(STR_FLASHCARD_ALL_SUSPENDED);
   if (deckLoaded) return nullptr;
   return deckPath == FLASHCARD_HARD_KEY ? tr(STR_FLASHCARD_NO_HARD) : tr(STR_FLASHCARD_NOT_LOADED);
 }

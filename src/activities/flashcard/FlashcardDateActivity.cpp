@@ -11,6 +11,7 @@
 #include "FlashcardClockSync.h"
 #include "FlashcardClockSyncActivity.h"
 #include "FlashcardSrs.h"
+#include "FlashcardStore.h"
 #include "FlashcardUi.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -39,12 +40,14 @@ const char* weekdayName(const int w) {
 
 void FlashcardDateActivity::onEnter() {
   Activity::onEnter();
-  // Never before 2026-01-01 nor before the last day the date was known.
+  // Offered: today when known, else the last day the date was known. Left
+  // goes back no further than the last Wi-Fi sync (a date known to be true),
+  // so a day confirmed by mistake can be undone.
   const uint32_t first = FlashcardClock::dayIndex(FlashcardClock::MIN_VALID_UNIX, 0);
+  minDay = std::max(first, FLASHCARD_STORE.lastNtpDay);
+  const uint32_t now = FlashcardSrs::getToday();
   const uint32_t known = FlashcardClockSync::suggestedDay();
-  minDay = std::max(first, known);
-  const uint32_t now = FlashcardSrs::getToday();  // when the date is known, start from it
-  day = now >= minDay ? now : minDay;
+  day = std::max(minDay, now != 0 ? now : known);
   option = 0;
   requestUpdate();
 }
@@ -101,7 +104,7 @@ void FlashcardDateActivity::render(RenderLock&&) {
   if (day > minDay) FlashcardChart::drawArrow(renderer, (pageWidth - dateW) / 2 - 28, arrowY, 18, true);
   FlashcardChart::drawArrow(renderer, (pageWidth + dateW) / 2 + 28, arrowY, 18, false);
   y += renderer.getLineHeight(NOTOSERIF_24_FONT_ID);
-  if (day == minDay && FlashcardClockSync::suggestedDay() == day) {
+  if (FlashcardClockSync::suggestedDay() == day) {
     renderer.drawCenteredText(SMALL_FONT_ID, y, tr(STR_FLASHCARD_LAST_KNOWN_DAY));
   }
   y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing * 2;

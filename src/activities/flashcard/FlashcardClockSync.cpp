@@ -39,6 +39,7 @@ bool syncFromNtp() {
       FLASHCARD_STORE.lastSyncUnix = static_cast<uint32_t>(now);
       FLASHCARD_STORE.lastSeenDay =
           FlashcardClock::dayIndex(static_cast<int64_t>(now), FLASHCARD_STORE.utcOffsetMinutes);
+      FLASHCARD_STORE.lastNtpDay = FLASHCARD_STORE.lastSeenDay;
       if (!FLASHCARD_STORE.saveToFile()) {
         LOG_ERR("FCLK", "Clock synced but flashcard.json could not be saved");
       }
