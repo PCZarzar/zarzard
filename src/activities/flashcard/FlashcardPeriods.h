@@ -34,6 +34,11 @@ void fill(std::vector<Bucket>& buckets, const std::vector<FlashcardDayRecord>& r
 // Sum of the records with from <= day <= to.
 FlashcardDayRecord sum(const std::vector<FlashcardDayRecord>& records, uint32_t from, uint32_t to);
 
+// Days of [start, end] counted for a "per day" average: not after today and
+// not before the first day with a history record (firstDay 0 = no record).
+// 0 when none.
+uint32_t daysCounted(uint32_t start, uint32_t end, uint32_t today, uint32_t firstDay);
+
 // Percentage 0..100 rounded to nearest, or -1 without data.
 int percent(uint32_t part, uint32_t whole);
 

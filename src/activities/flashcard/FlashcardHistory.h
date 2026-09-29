@@ -19,7 +19,7 @@ struct FlashcardDayRecord {
   uint16_t matureReviews = 0;  // Spaced: ratings of cards with interval >= 21 days
   uint16_t matureCorrect = 0;  // ... not rated Again
   uint16_t linearCards = 0;    // Linear: cards marked
-  uint16_t spacedSeconds = 0;  // time on cards, each capped at MAX_CARD_SECONDS
+  uint16_t spacedSeconds = 0;  // time on cards: front and back each capped at MAX_SIDE_SECONDS
   uint16_t linearSeconds = 0;
 
   uint32_t spaced() const { return static_cast<uint32_t>(again) + hard + good + easy; }
@@ -37,7 +37,10 @@ namespace FlashcardHistory {
 
 constexpr size_t RECORD_BYTES = 28;
 constexpr uint16_t MATURE_INTERVAL = 21;
-constexpr uint16_t MAX_CARD_SECONDS = 60;
+// Time counted per card: up to a minute looking at the front and up to a
+// minute reading the back, so a card left on screen does not inflate it.
+constexpr uint16_t MAX_SIDE_SECONDS = 60;
+constexpr uint16_t MAX_CARD_SECONDS = 2 * MAX_SIDE_SECONDS;
 extern const char* const PATH;
 
 void encode(const FlashcardDayRecord& r, uint8_t* out);

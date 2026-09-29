@@ -611,16 +611,21 @@ void FlashcardStatsActivity::renderHistory(const int top, const int bottom) {
   FlashcardChart::drawLegend(renderer, lx, y, FlashcardChart::Fill::Dots, l2.c_str());
   y += smallH + 10;
 
-  // Tiles: cards, time, cards per day
-  const uint32_t days = lastDay >= buckets.front().start ? lastDay - buckets.front().start + 1 : 1;
+  // Tiles: cards, time, cards per day (since the history started)
+  const uint32_t days =
+      FlashcardPeriods::daysCounted(buckets.front().start, buckets.back().end, today, summary.firstDay);
   const int tileH = FlashcardChart::tileHeight(renderer, false);
   const int tileW = (innerW - GAP * 2) / 3;
   char value[16];
   snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(total.cards()));
-  FlashcardChart::drawTile(renderer, Rect{side, y, tileW, tileH}, value, tr(STR_FLASHCARD_CARDS));
+  FlashcardChart::drawTile(renderer, Rect{side, y, tileW, tileH}, value, tr(STR_FLASHCARD_CARDS_IN_RANGE));
   const std::string dur = FlashcardChart::formatDuration(total.seconds());
   FlashcardChart::drawTile(renderer, Rect{side + tileW + GAP, y, tileW, tileH}, dur.c_str(), tr(STR_FLASHCARD_TIME));
-  snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>((total.cards() + days / 2) / days));
+  if (days == 0) {
+    snprintf(value, sizeof(value), "-");
+  } else {
+    snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>((total.cards() + days / 2) / days));
+  }
   FlashcardChart::drawTile(renderer, Rect{side + (tileW + GAP) * 2, y, tileW, tileH}, value, tr(STR_FLASHCARD_PER_DAY));
   y += tileH + 10;
 

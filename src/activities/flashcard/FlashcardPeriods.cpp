@@ -1,5 +1,7 @@
 #include "FlashcardPeriods.h"
 
+#include <algorithm>
+
 #include "FlashcardClock.h"
 #include "FlashcardSrs.h"
 
@@ -86,6 +88,13 @@ FlashcardDayRecord sum(const std::vector<FlashcardDayRecord>& records, const uin
     if (r.day >= from && r.day <= to) out.add(r);
   }
   return out;
+}
+
+uint32_t daysCounted(const uint32_t start, const uint32_t end, const uint32_t today, const uint32_t firstDay) {
+  if (firstDay == 0) return 0;
+  const uint32_t from = std::max(start, firstDay);
+  const uint32_t to = std::min(end, today);
+  return to >= from ? to - from + 1 : 0;
 }
 
 int percent(const uint32_t part, const uint32_t whole) {

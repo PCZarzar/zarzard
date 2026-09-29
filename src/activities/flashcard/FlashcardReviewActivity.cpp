@@ -58,7 +58,7 @@ FlashcardReviewActivity::FlashcardReviewActivity(GfxRenderer& renderer, MappedIn
 void FlashcardReviewActivity::onEnter() {
   Activity::onEnter();
   wholeFolder = deckPath == FLASHCARD_HARD_KEY || (!deckPath.empty() && deckPath.back() == '/');
-  cardShownMs = millis();
+  startCardTimer();
   if (deckPath == FLASHCARD_HARD_KEY) {
     // The difficult cards of every deck, read from their CSVs like a whole folder.
     folderName = tr(STR_FLASHCARD_HARD_CARDS);
@@ -281,7 +281,7 @@ void FlashcardReviewActivity::loopSummary() {
       finish();
       return;
   }
-  cardShownMs = millis();  // time on the summary screen is not study time
+  startCardTimer();  // time on the summary screen is not study time
   if (linear.passDone()) {
     buildSummaryOptions();
     cardState = CardState::Summary;
@@ -296,6 +296,7 @@ void FlashcardReviewActivity::loopSummary() {
 
 void FlashcardReviewActivity::flipCard() {
   statusMsg = nullptr;
+  flippedMs = millis();
   cardState = CardState::Back;
   requestUpdate();
 }
@@ -398,13 +399,27 @@ const char* FlashcardReviewActivity::doneMessage() const {
   return deckPath == FLASHCARD_HARD_KEY ? tr(STR_FLASHCARD_NO_HARD) : tr(STR_FLASHCARD_NOT_LOADED);
 }
 
-// Seconds on the card just answered (capped by the history), and start
-// timing the next one.
+// Seconds on the card just answered: time on the front plus time reading the
+// back, each capped (FlashcardHistory::MAX_SIDE_SECONDS); then times the next.
 uint16_t FlashcardReviewActivity::cardSeconds() {
   const unsigned long now = millis();
-  const unsigned long elapsed = (now - cardShownMs) / 1000;
-  cardShownMs = now;
-  return static_cast<uint16_t>(std::min<unsigned long>(elapsed, FlashcardHistory::MAX_CARD_SECONDS));
+  const unsigned long frontEnd = flippedMs != 0 ? flippedMs : now;
+  const unsigned long front = (frontEnd - cardShownMs) / 1000;
+  const unsigned long back = flippedMs != 0 ? (now - flippedMs) / 1000 : 0;
+  constexpr unsigned long CAP = FlashcardHistory::MAX_SIDE_SECONDS;
+  startCardTimer();
+  return static_cast<uint16_t>(std::min(front, CAP) + std::min(back, CAP));
+}
+
+void FlashcardReviewActivity::startCardTimer() {
+  cardShownMs = millis();
+  flippedMs = 0;
+}
+
+void FlashcardReviewActivity::resumeCardTimer() {
+  const unsigned long spent = millis() - menuOpenedMs;
+  cardShownMs += spent;
+  if (flippedMs != 0) flippedMs += spent;
 }
 
 size_t FlashcardReviewActivity::linearDeckSize() const { return wholeFolder ? folderIndex.size() : linearMap.size(); }
@@ -498,6 +513,7 @@ void FlashcardReviewActivity::openMenu() {
   }
   menuSelected = 0;
   menuReturn = cardState;
+  menuOpenedMs = millis();
   cardState = CardState::Menu;
   requestUpdate();
 }
@@ -556,7 +572,7 @@ void FlashcardReviewActivity::removeCurrentFromSession(const bool deckChanged) {
 
 void FlashcardReviewActivity::afterCardRemoved() {
   cardState = CardState::Front;
-  cardShownMs = millis();
+  startCardTimer();
   if (mode == ReviewMode::Spaced) {
     if (currentQueueIndex >= reviewQueue.size()) {
       saveProgress();
@@ -626,6 +642,7 @@ void FlashcardReviewActivity::loopMenu() {
     requestUpdate();
   });
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    resumeCardTimer();
     cardState = menuReturn;
     requestUpdate();
     return;
@@ -633,6 +650,7 @@ void FlashcardReviewActivity::loopMenu() {
   if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm) || menuItems.empty()) return;
   switch (menuItems[menuSelected]) {
     case MenuItem::ToggleMark:
+      resumeCardTimer();
       cardState = menuReturn;
       toggleMark();
       break;
@@ -646,6 +664,7 @@ void FlashcardReviewActivity::loopMenu() {
       break;
     case MenuItem::Reset:
       statusMsg = tr(STR_FLASHCARD_CARD_RESET);
+      resumeCardTimer();  // Linear stays on the card; Spaced moves on and restarts it
       cardState = menuReturn;
       doCardAction(FlashcardCardAction::Reset);
       requestUpdate();

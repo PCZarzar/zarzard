@@ -67,6 +67,8 @@ class FlashcardReviewActivity final : public Activity {
   void prepareLinearCard();
   const std::string& displayName() const;
   uint16_t cardSeconds();
+  void startCardTimer();
+  void resumeCardTimer();  // after the card menu: shift the timer by the time spent in it
   const char* doneMessage() const;
 
   // Card actions (hold side Up: mark, hold side Down: menu).
@@ -103,7 +105,9 @@ class FlashcardReviewActivity final : public Activity {
   FlashcardCard folderCard;  // whole folder: the card on screen
   size_t folderCardIndex = SIZE_MAX;
   bool folderCardOk = false;
-  unsigned long cardShownMs = 0;  // when the current card appeared (study time)
+  unsigned long cardShownMs = 0;   // when the current card appeared (study time)
+  unsigned long flippedMs = 0;     // when its back was shown; 0 while on the front
+  unsigned long menuOpenedMs = 0;  // the card menu's time is not study time
 
   // Linear over one deck: the cards reviewed (not suspended), by position.
   std::vector<size_t> linearMap;

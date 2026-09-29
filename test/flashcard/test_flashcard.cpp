@@ -1059,7 +1059,7 @@ static void testHistory(const std::string& root) {
     CHECK_EQ(x.matureReviews, (uint16_t)1);
     CHECK_EQ(x.matureCorrect, (uint16_t)1);
     CHECK_EQ(x.linearCards, (uint16_t)1);
-    CHECK_EQ(x.spacedSeconds, (uint16_t)(12 + 60 + 15));
+    CHECK_EQ(x.spacedSeconds, (uint16_t)(12 + FlashcardHistory::MAX_CARD_SECONDS + 15));
     CHECK_EQ(x.linearSeconds, (uint16_t)7);
   }
 
@@ -1187,6 +1187,12 @@ static void testPeriods() {
   CHECK_EQ(b[0].sum.cards(), (uint32_t)4);
   CHECK_EQ(b[1].sum.cards(), (uint32_t)5);
   CHECK_EQ(sum(recs, D("01/09/2026"), today).cards(), (uint32_t)5);
+  // "Per day" counts only days since the history started, never after today
+  CHECK_EQ(daysCounted(today - 29, today, today, today - 1), (uint32_t)2);  // the 125 cards / 2 days case
+  CHECK_EQ(daysCounted(today - 29, today, today, today - 100), (uint32_t)30);
+  CHECK_EQ(daysCounted(D("21/09/2026"), D("27/09/2026") + 7, D("24/09/2026"), D("01/01/2026")), (uint32_t)4);
+  CHECK_EQ(daysCounted(today - 29, today, today, 0), (uint32_t)0);               // no history at all
+  CHECK_EQ(daysCounted(today - 60, today - 31, today, today - 1), (uint32_t)0);  // a page from before it
   CHECK_EQ(percent(2, 3), 67);
   CHECK_EQ(percent(0, 5), 0);
   CHECK_EQ(percent(1, 0), -1);
