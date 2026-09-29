@@ -1509,6 +1509,62 @@ static void testLinearExclude() {
   CHECK_EQ(s.passSize(), (size_t)2);
 }
 
+// A pass keeps its piles after cards leave the deck (delete / suspend), as
+// when the device sleeps on the pass summary after "delete marked".
+static void testLinearPassSurvivesDeletion(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc);
+  std::string csv = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n";
+  for (int i = 1; i <= 8; ++i) csv += std::to_string(i) + ",q" + std::to_string(i) + ",a,,,\n";
+  std::ofstream(fc + "/d.csv", std::ios::binary) << csv;
+  FlashcardDeck deck;
+  CHECK_EQ(deck.loadFromCsv("/flashcard/d.csv"), true);
+  // A card suspended earlier is not part of Linear
+  FlashcardCardActions::apply(deck.getCards()[2], FlashcardCardAction::Suspend);  // q3
+  std::vector<size_t> map = deck.activeIndices();                                 // q1 q2 q4 q5 q6 q7 q8
+  FlashcardLinearSession s;
+  s.start(map.size(), false, 1);
+  const LinearPile marks[7] = {LinearPile::Known,  LinearPile::Missed, LinearPile::Unsure, LinearPile::Known,
+                               LinearPile::Missed, LinearPile::Known,  LinearPile::Unsure};
+  for (const auto m : marks) s.mark(m);
+  CHECK_EQ(s.passDone(), true);
+  // Summary: delete q5 (Known) and q6 (Missed)
+  std::vector<size_t> removed;
+  for (size_t j = 0; j < map.size(); ++j) {
+    const std::string f = deck.getCards()[map[j]].frontContent;
+    if (f == "q5" || f == "q6") {
+      FlashcardCardActions::apply(deck.getCards()[map[j]], FlashcardCardAction::Delete);
+      removed.push_back(j);
+      s.exclude(j);
+    }
+  }
+  CHECK_EQ(deck.saveToCsv("/flashcard/d.csv"), true);
+  auto st = s.exportState();
+  CHECK_EQ(FlashcardLinearSession::dropCards(st, removed), true);
+  const uint32_t fp = deck.fingerprintOf(deck.activeIndices());
+  // "Wake up": reload the deck and restore the pass
+  FlashcardDeck again;
+  CHECK_EQ(again.loadFromCsv("/flashcard/d.csv"), true);
+  const auto map2 = again.activeIndices();
+  CHECK_EQ(map2.size(), (size_t)5);
+  CHECK_EQ(again.fingerprintOf(map2), fp);
+  FlashcardLinearSession r;
+  CHECK_EQ(r.restore(st, map2.size(), false), true);
+  CHECK_EQ(r.passDone(), true);
+  CHECK_EQ(r.canRepeat(), true);
+  r.startRepeatPass(1);
+  std::vector<std::string> fronts;
+  for (const size_t j : r.passQueue()) fronts.push_back(again.getCards()[map2[j]].frontContent);
+  std::sort(fronts.begin(), fronts.end());
+  CHECK_EQ(fronts, (std::vector<std::string>{"q2", "q4", "q8"}));  // Missed q2 · Unsure q4, q8
+  // A removed card still in the pass is refused (never renumbered wrongly)
+  auto bad = s.exportState();
+  CHECK_EQ(FlashcardLinearSession::dropCards(bad, {0}), false);
+  fs::remove_all(fc);
+}
+
 int main(int argc, char** argv) {
   Storage.root = argc > 1 ? argv[1] : ".";
   testFrontParser();
@@ -1529,6 +1585,7 @@ int main(int argc, char** argv) {
   testCardFlags(Storage.root);
   testCardActionsOnFiles(Storage.root);
   testLinearExclude();
+  testLinearPassSurvivesDeletion(Storage.root);
   testFingerprint(Storage.root);
   testTestDeck("/lpic_test.csv");
   testLinearSession();

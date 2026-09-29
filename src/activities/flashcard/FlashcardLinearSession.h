@@ -108,6 +108,24 @@ class FlashcardLinearSession {
   bool isExcluded(size_t idx) const { return std::find(excluded.begin(), excluded.end(), idx) != excluded.end(); }
   size_t excludedCount() const { return excluded.size(); }
 
+  // Adapts a saved pass to the deck after the cards at `removed` (indices in
+  // the old deck) left it for good: the remaining cards keep their order, so
+  // each index moves down by the removed cards before it. False when a removed
+  // card is still part of the pass (it should have been excluded first).
+  static bool dropCards(State& st, std::vector<size_t> removed) {
+    std::sort(removed.begin(), removed.end());
+    removed.erase(std::unique(removed.begin(), removed.end()), removed.end());
+    const auto fix = [&removed](std::vector<size_t>& v) {
+      for (size_t& i : v) {
+        const auto it = std::lower_bound(removed.begin(), removed.end(), i);
+        if (it != removed.end() && *it == i) return false;
+        i -= static_cast<size_t>(it - removed.begin());
+      }
+      return true;
+    };
+    return fix(st.queue) && fix(st.missed) && fix(st.unsure) && fix(st.known);
+  }
+
   bool passDone() const { return position >= queue.size(); }
   size_t current() const { return queue[position]; }
 

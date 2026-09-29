@@ -140,28 +140,47 @@ void FlashcardReviewActivity::onExit() {
   // Also runs when the device goes to sleep mid-session: keep every rating
   // and the linear position.
   if (mode == ReviewMode::Spaced && (unsavedRatings > 0 || newQuotaDirty)) saveProgress();
-  if (mode == ReviewMode::Linear && (linearDirty || structureChanged)) saveLinearProgress();
+  // Deck files first: a whole folder's saved pass is renumbered against them.
   if (!pendingActions.empty()) {
     FlashcardCardActions::applyToFiles(pendingActions);
     pendingActions.clear();
   }
+  if (mode == ReviewMode::Linear && (linearDirty || structureChanged)) saveLinearProgress();
   FlashcardHistory::flush();
   Activity::onExit();
 }
 
 void FlashcardReviewActivity::saveLinearProgress() {
   if (!deckLoaded) return;
-  if (structureChanged) {
-    // Cards were taken out of the deck: this pass cannot be resumed against it.
-    FlashcardLinearProgress::clear(deckPath);
-    FlashcardHistory::flush();
-    linearDirty = false;
-    marksSinceSave = 0;
-    return;
-  }
   FlashcardLinearProgress::Saved saved;
-  saved.fingerprint = linearFingerprint();
   saved.state = linear.exportState();
+  saved.fingerprint = linearFingerprint();
+  if (structureChanged) {
+    // Cards left the deck: save the pass renumbered without them, so it (and
+    // its Missed/Unsure piles) can still be resumed.
+    bool ok = deckPath != FLASHCARD_HARD_KEY && FlashcardLinearSession::dropCards(saved.state, removedLinear);
+    if (ok && wholeFolder) {
+      if (!pendingActions.empty()) return;  // the decks change on exit; saved then
+      FlashcardFolderIndex fresh;
+      const std::string dir = deckPath.substr(0, deckPath.size() - 1);
+      ok = fresh.build(FlashcardDeck::listDecks(dir));
+      std::vector<size_t> gone = removedLinear;
+      std::sort(gone.begin(), gone.end());
+      gone.erase(std::unique(gone.begin(), gone.end()), gone.end());
+      ok = ok && fresh.size() + gone.size() == folderIndex.size();
+      saved.fingerprint = fresh.fingerprint();
+    } else if (ok) {
+      saved.fingerprint = deck.fingerprintOf(deck.activeIndices());
+    }
+    if (!ok) {
+      LOG_INF("FCRV", "Linear pass cannot follow the changed deck, clearing: %s", deckPath.c_str());
+      FlashcardLinearProgress::clear(deckPath);
+      FlashcardHistory::flush();
+      linearDirty = false;
+      marksSinceSave = 0;
+      return;
+    }
+  }
   FlashcardHistory::flush();
   if (FlashcardLinearProgress::save(deckPath, saved)) {
     linearDirty = false;
@@ -560,6 +579,7 @@ void FlashcardReviewActivity::removeCurrentFromSession(const bool deckChanged) {
       }
     }
   } else {
+    if (deckChanged) removedLinear.push_back(linear.current());
     linear.exclude(linear.current());
     if (deckChanged) {
       structureChanged = true;
@@ -618,6 +638,7 @@ void FlashcardReviewActivity::deleteMarked() {
       if (!card.isMarked()) continue;
       FlashcardCardActions::apply(card, FlashcardCardAction::Delete);
     }
+    removedLinear.push_back(j);
     linear.exclude(j);
     ++n;
   }

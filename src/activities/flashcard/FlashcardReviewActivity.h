@@ -111,9 +111,10 @@ class FlashcardReviewActivity final : public Activity {
 
   // Linear over one deck: the cards reviewed (not suspended), by position.
   std::vector<size_t> linearMap;
-  // Linear: cards were suspended or deleted, so the saved pass no longer
-  // matches the deck; it is cleared instead of saved.
+  // Linear: cards were suspended or deleted; the saved pass is renumbered
+  // without them (FlashcardLinearSession::dropCards) so it survives.
   bool structureChanged = false;
+  std::vector<size_t> removedLinear;  // linear indices deleted or suspended this session
   // Whole folder / difficult cards: changes to apply to the deck files on exit
   // (their record positions must stay valid while the session reads them).
   std::vector<FlashcardCardActions::Pending> pendingActions;
