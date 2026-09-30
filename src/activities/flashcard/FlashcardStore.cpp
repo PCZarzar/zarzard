@@ -13,6 +13,8 @@ void FlashcardStore::toJson(JsonDocument& doc) const {
   doc["lastSyncUnix"] = lastSyncUnix;
   doc["lastSeenDay"] = lastSeenDay;
   doc["lastNtpDay"] = lastNtpDay;
+  doc["homeCardsToday"] = homeCardsToday;
+  doc["homeCardsDay"] = homeCardsDay;
 }
 
 bool FlashcardStore::fromJson(JsonVariantConst doc) {
@@ -27,6 +29,8 @@ bool FlashcardStore::fromJson(JsonVariantConst doc) {
   lastSyncUnix = doc["lastSyncUnix"] | static_cast<uint32_t>(0);
   lastSeenDay = doc["lastSeenDay"] | static_cast<uint32_t>(0);
   lastNtpDay = doc["lastNtpDay"] | static_cast<uint32_t>(0);
+  homeCardsToday = doc["homeCardsToday"] | static_cast<uint16_t>(0);
+  homeCardsDay = doc["homeCardsDay"] | static_cast<uint32_t>(0);
   freeDaysMask = (doc["freeDaysMask"] | static_cast<uint8_t>(0)) & 0x7F;
   if (freeDaysMask == 0x7F) freeDaysMask = 0;  // every day free makes no sense: treat as none
   return true;

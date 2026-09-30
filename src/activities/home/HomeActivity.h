@@ -31,6 +31,20 @@ class HomeActivity final : public Activity {
   const HomeMenuItem initialMenuItem;
   const bool cleanInitialRefresh;
 
+  // Zarzard layout: study card, continue-reading card and a grid of the rest.
+  // zzItems lists them in screen order; NONE stands for the continue card.
+  bool zarzard = false;
+  std::vector<HomeMenuItem> zzItems;
+  int zzCardsToday = -1;  // Spaced cards left today, -1 = date not known yet
+  bool zzCountPending = false;
+  uint16_t zzStreak = 0;
+  int zzDonePercent = 0;
+  void zzBuildItems();
+  void zzLoadStudy();
+  void zzActivate(HomeMenuItem item);
+  void zzLoop();
+  void zzRender();
+
   // Convert HomeMenuItem to menu index (used in onEnter)
   static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl) {
     int i = 0;

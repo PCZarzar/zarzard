@@ -16,7 +16,7 @@
 #include <builtinFonts/notoserif_18_bolditalic.h>
 #include <builtinFonts/notoserif_18_italic.h>
 #include <builtinFonts/notoserif_18_regular.h>
-#include <builtinFonts/notosans_8_regular.h>
+#include <builtinFonts/manrope_8_regular.h>
 #include <builtinFonts/notosans_12_bold.h>
 #include <builtinFonts/notosans_12_bolditalic.h>
 #include <builtinFonts/notosans_12_italic.h>
@@ -33,10 +33,13 @@
 #include <builtinFonts/notosans_18_bolditalic.h>
 #include <builtinFonts/notosans_18_italic.h>
 #include <builtinFonts/notosans_18_regular.h>
-#include <builtinFonts/ubuntu_10_bold.h>
-#include <builtinFonts/ubuntu_10_regular.h>
-#include <builtinFonts/ubuntu_12_bold.h>
-#include <builtinFonts/ubuntu_12_regular.h>
+#include <builtinFonts/manrope_10_bold.h>
+#include <builtinFonts/manrope_10_regular.h>
+#include <builtinFonts/manrope_12_bold.h>
+#include <builtinFonts/manrope_12_regular.h>
+#include <builtinFonts/manrope_14_bold.h>
+#include <builtinFonts/manrope_18_bold.h>
+#include <builtinFonts/manrope_40_digits.h>
 #include <builtinFonts/notoserif_20_regular.h>
 #include <builtinFonts/notoserif_22_regular.h>
 #include <builtinFonts/notoserif_24_regular.h>

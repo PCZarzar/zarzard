@@ -7,6 +7,14 @@
 class FlashcardHomeActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
+  // Figures on the tiles: today's Spaced cards (-1 = date unknown) and the
+  // last seven days of study.
+  int cardsToday = -1;
+  bool countPending = false;
+  bool firstRenderDone = false;
+  uint16_t week[7] = {};
+  uint32_t weekTotal = 0;
+  void loadFigures();
 
  public:
   explicit FlashcardHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

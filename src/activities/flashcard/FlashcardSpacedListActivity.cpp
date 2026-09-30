@@ -58,6 +58,7 @@ void FlashcardSpacedListActivity::reload() {
     decks.push_back(std::move(e));
   }
   cardsToday = due + fresh;
+  flashcardRememberCardsToday(today, cardsToday);
   FlashcardCatalog::sortForSpaced(decks);
   buildItems();
 }

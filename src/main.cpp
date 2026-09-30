@@ -113,7 +113,7 @@ EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, 
 
 #endif  // OMIT_FONTS
 
-EpdFont smallFont(&notosans_8_regular);
+EpdFont smallFont(&manrope_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
 // Flashcard card text (regular only, Latin subsets)
@@ -136,13 +136,21 @@ EpdFontFamily jetbrainsMono22FontFamily(&jetbrainsMono22RegularFont);
 EpdFont jetbrainsMono24RegularFont(&jetbrainsmono_24_regular);
 EpdFontFamily jetbrainsMono24FontFamily(&jetbrainsMono24RegularFont);
 
-EpdFont ui10RegularFont(&ubuntu_10_regular);
-EpdFont ui10BoldFont(&ubuntu_10_bold);
+EpdFont ui10RegularFont(&manrope_10_regular);
+EpdFont ui10BoldFont(&manrope_10_bold);
 EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 
-EpdFont ui12RegularFont(&ubuntu_12_regular);
-EpdFont ui12BoldFont(&ubuntu_12_bold);
+EpdFont ui12RegularFont(&manrope_12_regular);
+EpdFont ui12BoldFont(&manrope_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+
+// Zarzard titles and big figures: one weight each.
+EpdFont zzTitle14Font(&manrope_14_bold);
+EpdFontFamily zzTitle14FontFamily(&zzTitle14Font, &zzTitle14Font);
+EpdFont zzTitle18Font(&manrope_18_bold);
+EpdFontFamily zzTitle18FontFamily(&zzTitle18Font, &zzTitle18Font);
+EpdFont zzDigits40Font(&manrope_40_digits);
+EpdFontFamily zzDigits40FontFamily(&zzDigits40Font, &zzDigits40Font);
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -353,6 +361,9 @@ void setupDisplayAndFonts(bool seamless = false) {
 #endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
+  renderer.insertFont(ZZ_TITLE_14_FONT_ID, zzTitle14FontFamily);
+  renderer.insertFont(ZZ_TITLE_18_FONT_ID, zzTitle18FontFamily);
+  renderer.insertFont(ZZ_DIGITS_40_FONT_ID, zzDigits40FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
   renderer.insertFont(NOTOSERIF_20_FONT_ID, notoserif20FontFamily);
   renderer.insertFont(NOTOSERIF_22_FONT_ID, notoserif22FontFamily);

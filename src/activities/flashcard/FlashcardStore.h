@@ -32,6 +32,8 @@ class FlashcardStore : public PersistableStore<FlashcardStore> {
   uint32_t lastSyncUnix = 0;        // last NTP sync or date confirmed by hand (UTC seconds), 0 = never
   uint32_t lastSeenDay = 0;         // last day the date was known (day index): suggested after a wake
   uint32_t lastNtpDay = 0;          // day of the last Wi-Fi sync: a hand-confirmed date never goes before it
+  uint16_t homeCardsToday = 0;      // Spaced cards to study on homeCardsDay (due + new), shown on Home
+  uint32_t homeCardsDay = 0;        // day those were counted, 0 = never
 };
 
 #define FLASHCARD_STORE FlashcardStore::getInstance()

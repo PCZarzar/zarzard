@@ -110,6 +110,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (keyboardLayouts != 0) {
     doc["keyboardLayouts"] = keyboardLayouts;
   }
+  doc["zarzardTheme"] = true;
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc) {
@@ -231,6 +232,12 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   // Absent means unconfigured, which is the default.
   if (doc["keyboardLayouts"].is<uint16_t>()) {
     keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
+  }
+
+  // Settings written before Zarzard switch to its theme once; a later choice sticks.
+  if (!doc["zarzardTheme"].is<bool>()) {
+    uiTheme = ZARZARD;
+    needsResave = true;
   }
 
   if (needsResave) {

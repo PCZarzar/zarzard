@@ -14,6 +14,7 @@
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
+#include "components/themes/zarzard/ZarzardTheme.h"
 
 UITheme UITheme::instance;
 
@@ -43,6 +44,11 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       LOG_DBG("UI", "Using RoundedRaff theme");
       currentTheme = std::make_unique<RoundedRaffTheme>();
       currentMetrics = &RoundedRaffMetrics::values;
+      break;
+    case CrossPointSettings::UI_THEME::ZARZARD:
+      LOG_DBG("UI", "Using Zarzard theme");
+      currentTheme = std::make_unique<ZarzardTheme>();
+      currentMetrics = &ZarzardMetrics::values;
       break;
     case CrossPointSettings::UI_THEME::LYRA_3_COVERS:
       LOG_DBG("UI", "Using Lyra 3 Covers theme");

@@ -5,6 +5,7 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Utf8.h>
@@ -19,8 +20,13 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/flashcard/FlashcardHistory.h"
 #include "activities/flashcard/FlashcardHomeActivity.h"
+#include "activities/flashcard/FlashcardPlanRefresh.h"
+#include "activities/flashcard/FlashcardSrs.h"
+#include "activities/flashcard/FlashcardStore.h"
 #include "components/UITheme.h"
+#include "components/themes/zarzard/ZarzardHome.h"
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
@@ -119,6 +125,18 @@ void HomeActivity::onEnter() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   loadRecentBooks(metrics.homeRecentBooksCount);
 
+  zarzard = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::ZARZARD;
+  if (zarzard) {
+    zzBuildItems();
+    selectorIndex = 0;
+    for (size_t i = 0; i < zzItems.size(); ++i) {
+      if (initialMenuItem != HomeMenuItem::NONE && zzItems[i] == initialMenuItem) selectorIndex = static_cast<int>(i);
+    }
+    zzLoadStudy();
+    requestUpdate();
+    return;
+  }
+
   const auto base = static_cast<int>(recentBooks.size());
   selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
 
@@ -170,6 +188,10 @@ void HomeActivity::freeCoverBuffer() {
 }
 
 void HomeActivity::loop() {
+  if (zarzard) {
+    zzLoop();
+    return;
+  }
   const int menuCount = getMenuItemCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
@@ -288,6 +310,10 @@ void HomeActivity::loop() {
 }
 
 void HomeActivity::render(RenderLock&&) {
+  if (zarzard) {
+    zzRender();
+    return;
+  }
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -370,4 +396,166 @@ void HomeActivity::onSummariesOpen() { activityManager.goToSummaries(); }
 
 void HomeActivity::onFlashcardsOpen() {
   activityManager.replaceActivity(std::make_unique<FlashcardHomeActivity>(renderer, mappedInput));
+}
+
+// ─── Zarzard layout ──────────────────────────────────────────────────────────
+
+void HomeActivity::zzBuildItems() {
+  zzItems.clear();
+  zzItems.reserve(8);
+  zzItems.push_back(HomeMenuItem::FLASHCARDS);
+  if (!recentBooks.empty()) zzItems.push_back(HomeMenuItem::NONE);  // continue reading
+  zzItems.push_back(HomeMenuItem::SUMMARIES);
+  zzItems.push_back(HomeMenuItem::FILE_BROWSER);
+  zzItems.push_back(HomeMenuItem::RECENTS);
+  zzItems.push_back(HomeMenuItem::FILE_TRANSFER);
+  if (hasOpdsServers) zzItems.push_back(HomeMenuItem::OPDS_BROWSER);
+  zzItems.push_back(HomeMenuItem::SETTINGS_MENU);
+}
+
+// Today's Spaced total comes from the count the Spaced list remembers; when it
+// is from another day it is counted again after the first frame (zzLoop).
+void HomeActivity::zzLoadStudy() {
+  zzCardsToday = -1;
+  zzCountPending = false;
+  zzStreak = 0;
+  zzDonePercent = 0;
+  const uint32_t today = FlashcardSrs::getToday();
+  if (today == 0) return;
+  if (FLASHCARD_STORE.homeCardsDay == today) {
+    zzCardsToday = FLASHCARD_STORE.homeCardsToday;
+  } else {
+    zzCountPending = true;
+  }
+  zzStreak = FlashcardHistory::summarize(today, FLASHCARD_STORE.freeDaysMask).currentStreak;
+  const auto records = FlashcardHistory::readRange(today, today);
+  const uint32_t done = records.empty() ? 0 : records.front().spaced();
+  const uint32_t left = zzCardsToday > 0 ? static_cast<uint32_t>(zzCardsToday) : 0;
+  zzDonePercent = done + left == 0 ? 0 : static_cast<int>(done * 100 / (done + left));
+}
+
+void HomeActivity::zzActivate(const HomeMenuItem item) {
+  switch (item) {
+    case HomeMenuItem::NONE:
+      if (!recentBooks.empty()) onSelectBook(recentBooks[0].path);
+      break;
+    case HomeMenuItem::FLASHCARDS:
+      onFlashcardsOpen();
+      break;
+    case HomeMenuItem::SUMMARIES:
+      onSummariesOpen();
+      break;
+    case HomeMenuItem::FILE_BROWSER:
+      onFileBrowserOpen();
+      break;
+    case HomeMenuItem::RECENTS:
+      onRecentsOpen();
+      break;
+    case HomeMenuItem::FILE_TRANSFER:
+      onFileTransferOpen();
+      break;
+    case HomeMenuItem::OPDS_BROWSER:
+      onOpdsBrowserOpen();
+      break;
+    case HomeMenuItem::SETTINGS_MENU:
+      onSettingsOpen();
+      break;
+  }
+}
+
+void HomeActivity::zzLoop() {
+  if (zzCountPending && firstRenderDone) {
+    // Reads every deck: done here, outside the render task, then shown.
+    flashcardCountCardsToday(FlashcardSrs::getToday());
+    {
+      RenderLock lock(*this);
+      zzLoadStudy();
+    }
+    requestUpdate();
+    return;
+  }
+  const int count = static_cast<int>(zzItems.size());
+  buttonNavigator.onNext([this, count] {
+    selectorIndex = ButtonNavigator::nextIndex(selectorIndex, count);
+    requestUpdate();
+  });
+  buttonNavigator.onPrevious([this, count] {
+    selectorIndex = ButtonNavigator::previousIndex(selectorIndex, count);
+    requestUpdate();
+  });
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) && !recentBooks.empty()) {
+    onSelectBook(recentBooks[0].path);
+    return;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && selectorIndex < count) {
+    zzActivate(zzItems[selectorIndex]);
+  }
+}
+
+void HomeActivity::zzRender() {
+  ZarzardHomeView view;
+  auto isSelected = [this](const HomeMenuItem item) {
+    return selectorIndex < static_cast<int>(zzItems.size()) && zzItems[selectorIndex] == item;
+  };
+  view.studyTitle = tr(STR_FLASHCARDS);
+  view.studySelected = isSelected(HomeMenuItem::FLASHCARDS);
+  view.cardsToday = zzCardsToday;
+  view.cardsLabel = tr(STR_FLASHCARD_CARDS);
+  view.dueLabel = tr(STR_ZZ_DUE_TODAY);
+  view.allDoneLabel = tr(STR_ZZ_ALL_DONE);
+  view.dateUnknownLabel = tr(STR_ZZ_DATE_UNKNOWN);
+  view.streakText = std::to_string(zzStreak) + " " + tr(STR_ZZ_STREAK_DAYS);
+  view.donePercent = zzDonePercent;
+  if (!recentBooks.empty()) {
+    const RecentBook& book = recentBooks[0];
+    view.hasBook = true;
+    view.bookSelected = isSelected(HomeMenuItem::NONE);
+    view.continueLabel = tr(STR_CONTINUE_READING);
+    view.bookTitle = book.title.empty() ? book.path.substr(book.path.rfind('/') + 1) : book.title;
+    view.bookAuthor = book.author;
+  }
+  view.tiles.reserve(zzItems.size());
+  for (const HomeMenuItem item : zzItems) {
+    ZarzardHomeTile tile{nullptr, nullptr, isSelected(item)};
+    switch (item) {
+      case HomeMenuItem::SUMMARIES:
+        tile.icon = &ZarzardIcons::Notebook40;
+        tile.label = tr(STR_SUMMARIES);
+        break;
+      case HomeMenuItem::FILE_BROWSER:
+        tile.icon = &ZarzardIcons::FolderOpen40;
+        tile.label = tr(STR_BROWSE_FILES);
+        break;
+      case HomeMenuItem::RECENTS:
+        tile.icon = &ZarzardIcons::ClockCounterClockwise40;
+        tile.label = tr(STR_MENU_RECENT_BOOKS);
+        break;
+      case HomeMenuItem::FILE_TRANSFER:
+        tile.icon = &ZarzardIcons::ArrowsLeftRight40;
+        tile.label = tr(STR_FILE_TRANSFER);
+        break;
+      case HomeMenuItem::OPDS_BROWSER:
+        tile.icon = &ZarzardIcons::Rss40;
+        tile.label = tr(STR_OPDS_BROWSER);
+        break;
+      case HomeMenuItem::SETTINGS_MENU:
+        tile.icon = &ZarzardIcons::GearSix40;
+        tile.label = tr(STR_SETTINGS_TITLE);
+        break;
+      default:
+        continue;  // the study and continue cards are drawn apart
+    }
+    view.tiles.push_back(tile);
+  }
+  view.batteryPercent = powerManager.getBatteryPercentage();
+  view.showBatteryPercent = SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
+
+  renderer.clearScreen();
+  ZarzardUi::drawHome(renderer, view);
+  const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RESUME), tr(STR_SELECT), tr(STR_DIR_UP),
+                                            tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+
+  renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+  firstRenderDone = true;
 }

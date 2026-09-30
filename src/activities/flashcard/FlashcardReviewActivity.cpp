@@ -21,17 +21,19 @@
 #include "FlashcardUi.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "components/themes/zarzard/ZarzardFlashcards.h"
+#include "components/themes/zarzard/ZarzardUi.h"
 #include "fontIds.h"
 
 namespace {
 constexpr uint8_t SAVE_EVERY_RATINGS = 5;
 constexpr unsigned long HOLD_MS = 700;  // side button held this long: card action
 
-FlashcardLayout::CardArea cardArea(const GfxRenderer& renderer) {
+// Text area inside the card frame.
+FlashcardLayout::CardArea cardArea(const GfxRenderer& renderer, const int frameTop, const int frameBottom) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  return {metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing,
-          renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing,
-          renderer.getScreenWidth() - metrics.contentSidePadding * 2, metrics.verticalSpacing};
+  return {frameTop + 20, frameBottom - 20, renderer.getScreenWidth() - 2 * (ZarzardUi::GUTTER + 24),
+          metrics.verticalSpacing};
 }
 
 void drawCenteredLines(const GfxRenderer& renderer, int font, int y, const std::vector<std::string>& lines) {
@@ -813,69 +815,92 @@ void FlashcardReviewActivity::render(RenderLock&&) {
 }
 
 void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
   renderer.clearScreen();
 
   char progress[32] = "";
+  int percent = 0;
   if (mode == ReviewMode::Linear) {
     snprintf(progress, sizeof(progress), "%s %u \xC2\xB7 %u/%u", tr(STR_FLASHCARD_PASS),
              static_cast<unsigned>(linear.pass()), static_cast<unsigned>(linear.shownPosition()),
              static_cast<unsigned>(linear.passSize()));
+    if (linear.passSize() > 0) percent = static_cast<int>(linear.shownPosition() * 100 / linear.passSize());
   } else {
     // Card i of the session (the queue grows when a card is missed).
     snprintf(progress, sizeof(progress), "%u/%u", static_cast<unsigned>(currentQueueIndex + 1),
              static_cast<unsigned>(reviewQueue.size()));
+    if (!reviewQueue.empty()) percent = static_cast<int>((currentQueueIndex + 1) * 100 / reviewQueue.size());
   }
   // A card action's note takes the progress's place for one card.
-  const char* right = statusMsg ? statusMsg : (progress[0] ? progress : nullptr);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str(), right);
+  const char* right = statusMsg ? statusMsg : progress;
+  const int frameTop = ZarzardUi::drawCardHeader(renderer, displayName().c_str(), right, percent);
+  const int frameBottom = renderer.getScreenHeight() - ZarzardUi::ACTION_BUTTON_HEIGHT - 20;
+  ZarzardUi::drawCardFrame(renderer, frameTop, frameBottom);
 
-  const auto area = cardArea(renderer);
-  const int markTop = metrics.topPadding + metrics.headerHeight + 4;
+  const auto area = cardArea(renderer, frameTop, frameBottom);
   if (card.isMarked()) {
-    // Small flag in the corner: this card is set aside for the clean-up list.
-    const int x = metrics.contentSidePadding;
-    renderer.fillRect(x, markTop, 2, 20, true);
-    const int xs[3] = {x + 2, x + 16, x + 2};
-    const int ys[3] = {markTop, markTop + 5, markTop + 10};
-    renderer.fillPolygon(xs, ys, 3, true);
+    // Bookmark in the card's corner: set aside for the clean-up list.
+    ZarzardUi::drawIcon(renderer, ZarzardIcons::BookmarkSimpleFill24,
+                        renderer.getScreenWidth() - ZarzardUi::GUTTER - 40, frameTop + 2);
   }
   std::string mainText, hint;
   card.parseFront(mainText, hint);
+
+  // The buttons follow the front-button remap: labels and icons are mapped
+  // the same way, then matched by position.
+  ZarzardUi::ActionButton buttons[4];
+  auto place = [this, &buttons](const char* const labels[4], const char* const subs[4],
+                                const ZarzardIcons::Icon* const icons[4]) {
+    static const char* const KEYS[4] = {"0", "1", "2", "3"};
+    const auto mappedKeys = mappedInput.mapLabels(KEYS[0], KEYS[1], KEYS[2], KEYS[3]);
+    const char* order[4] = {mappedKeys.btn1, mappedKeys.btn2, mappedKeys.btn3, mappedKeys.btn4};
+    for (int pos = 0; pos < 4; ++pos) {
+      const int role = order[pos] ? order[pos][0] - '0' : -1;
+      if (role < 0 || role > 3 || !icons[role]) continue;
+      buttons[pos].icon = icons[role];
+      buttons[pos].label = labels[role];
+      buttons[pos].sub = subs[role];
+    }
+  };
 
   if (cardState == CardState::Front) {
     const auto front = FlashcardLayout::layoutFront(renderer, mainText, hint, area, UI_10_FONT_ID);
     drawCenteredLines(renderer, front.mainFont, front.mainY, front.mainLines);
     drawCenteredLines(renderer, front.hintFont, front.hintY, front.hintLines);
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_FLASHCARD_SHOW), "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    const char* const labels[4] = {tr(STR_BACK), tr(STR_FLASHCARD_SHOW), "", ""};
+    const char* const subs[4] = {"", "", "", ""};
+    const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::ArrowUUpLeft32, &ZarzardIcons::Eye32, nullptr, nullptr};
+    place(labels, subs, icons);
   } else {
     const auto back = FlashcardLayout::layoutBack(renderer, mainText, card.backContent, area, UI_12_FONT_ID);
     drawCenteredLines(renderer, back.questionFont, back.questionY, back.questionLines);
-    renderer.drawLine(metrics.contentSidePadding, back.separatorY, pageWidth - metrics.contentSidePadding,
-                      back.separatorY, true);
+    // Dashed rule between question and answer.
+    const int left = ZarzardUi::GUTTER + 24, rightX = renderer.getScreenWidth() - ZarzardUi::GUTTER - 24;
+    for (int x = left; x < rightX; x += 10) renderer.fillRect(x, back.separatorY, 5, 2, true);
     drawCenteredLines(renderer, back.answerFont, back.answerY, back.answerLines);
 
     if (mode == ReviewMode::Linear) {
-      const auto labels =
-          mappedInput.mapLabels(tr(STR_FLASHCARD_MISSED), "", tr(STR_FLASHCARD_UNSURE), tr(STR_FLASHCARD_KNOWN));
-      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      const char* const labels[4] = {tr(STR_FLASHCARD_MISSED), "", tr(STR_FLASHCARD_UNSURE), tr(STR_FLASHCARD_KNOWN)};
+      const char* const subs[4] = {"", "", "", ""};
+      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle32, nullptr, &ZarzardIcons::Question32,
+                                                  &ZarzardIcons::CheckCircle32};
+      place(labels, subs, icons);
     } else {
-      // Rating + resulting interval. Back→Again, Confirm→Easy, Previous→Hard, Next→Good
-      char again[32], easy[32], hard[32], good[32];
-      snprintf(again, sizeof(again), "%s %s", tr(STR_FLASHCARD_AGAIN),
-               FlashcardSrs::previewInterval(card.srs, SrsRating::Again));
-      snprintf(easy, sizeof(easy), "%s %s", tr(STR_FLASHCARD_EASY),
-               FlashcardSrs::previewInterval(card.srs, SrsRating::Easy));
-      snprintf(hard, sizeof(hard), "%s %s", tr(STR_FLASHCARD_HARD),
-               FlashcardSrs::previewInterval(card.srs, SrsRating::Hard));
-      snprintf(good, sizeof(good), "%s %s", tr(STR_FLASHCARD_GOOD),
-               FlashcardSrs::previewInterval(card.srs, SrsRating::Good));
-      const auto labels = mappedInput.mapLabels(again, easy, hard, good);
-      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      // Rating and the interval it leads to. Back→Again, Confirm→Easy, Previous→Hard, Next→Good
+      const char* const labels[4] = {tr(STR_FLASHCARD_AGAIN), tr(STR_FLASHCARD_EASY), tr(STR_FLASHCARD_HARD),
+                                     tr(STR_FLASHCARD_GOOD)};
+      // previewInterval returns one static buffer: copy each result.
+      char intervals[4][16];
+      const SrsRating ratings[4] = {SrsRating::Again, SrsRating::Easy, SrsRating::Hard, SrsRating::Good};
+      for (int i = 0; i < 4; ++i) {
+        snprintf(intervals[i], sizeof(intervals[i]), "%s", FlashcardSrs::previewInterval(card.srs, ratings[i]));
+      }
+      const char* const subs[4] = {intervals[0], intervals[1], intervals[2], intervals[3]};
+      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle32, &ZarzardIcons::Lightning32,
+                                                  &ZarzardIcons::Question32, &ZarzardIcons::CheckCircle32};
+      place(labels, subs, icons);
     }
   }
+  ZarzardUi::drawActionButtons(renderer, buttons);
   renderer.displayBuffer();
 }
 
@@ -883,31 +908,31 @@ void FlashcardReviewActivity::renderSummary() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
-  const int sidePad = metrics.contentSidePadding;
 
   renderer.clearScreen();
   char title[32];
   snprintf(title, sizeof(title), "%s %u", tr(STR_FLASHCARD_PASS), static_cast<unsigned>(linear.pass()));
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, displayName().c_str(), title);
+  int y = ZarzardUi::drawCardHeader(renderer, displayName().c_str(), title, 100) + 4;
 
-  int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  renderer.drawCenteredText(UI_12_FONT_ID, y, title, true, EpdFontFamily::BOLD);
-  y += renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
-
-  // Missed / Unsure / Known counts
+  // Missed / Unsure / Known: one tile each.
   const size_t counts[3] = {linear.missedCount(), linear.unsureCount(), linear.knownCount()};
   const char* names[3] = {tr(STR_FLASHCARD_MISSED), tr(STR_FLASHCARD_UNSURE), tr(STR_FLASHCARD_KNOWN)};
-  const int colW = (pageWidth - sidePad * 2) / 3;
-  const int line10 = renderer.getLineHeight(UI_10_FONT_ID);
+  const ZarzardIcons::Icon* icons[3] = {&ZarzardIcons::XCircle32, &ZarzardIcons::Question32,
+                                        &ZarzardIcons::CheckCircle32};
+  constexpr int GAP = 12, TILE_H = 136;
+  const int tileW = (pageWidth - 2 * ZarzardUi::GUTTER - 2 * GAP) / 3;
   for (int i = 0; i < 3; ++i) {
+    const int x = ZarzardUi::GUTTER + i * (tileW + GAP);
+    ZarzardUi::drawCard(renderer, x, y, tileW, TILE_H, false, 18);
+    ZarzardUi::drawIcon(renderer, *icons[i], x + (tileW - 32) / 2, y + 14);
     char val[8];
     snprintf(val, sizeof(val), "%u", static_cast<unsigned>(counts[i]));
-    const int cx = sidePad + colW * i;
-    renderer.drawText(UI_10_FONT_ID, cx + (colW - renderer.getTextWidth(UI_10_FONT_ID, names[i])) / 2, y, names[i]);
-    renderer.drawText(UI_12_FONT_ID, cx + (colW - renderer.getTextWidth(UI_12_FONT_ID, val, EpdFontFamily::BOLD)) / 2,
-                      y + line10 + 4, val, true, EpdFontFamily::BOLD);
+    renderer.drawText(ZZ_TITLE_18_FONT_ID, x + (tileW - renderer.getTextWidth(ZZ_TITLE_18_FONT_ID, val)) / 2, y + 52,
+                      val);
+    renderer.drawText(SMALL_FONT_ID, x + (tileW - renderer.getTextWidth(SMALL_FONT_ID, names[i])) / 2, y + 104,
+                      names[i]);
   }
-  y += line10 + 4 + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
+  y += TILE_H + metrics.verticalSpacing;
   if (statusMsg) renderer.drawCenteredText(SMALL_FONT_ID, y, statusMsg);
   y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing / 2;
 

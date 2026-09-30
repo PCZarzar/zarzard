@@ -1,21 +1,26 @@
 #include "FlashcardHomeActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalPowerManager.h>
 #include <I18n.h>
+
+#include <algorithm>
+#include <iterator>
 
 #include "FlashcardClockSync.h"
 #include "FlashcardDateActivity.h"
 #include "FlashcardDeckOptions.h"
 #include "FlashcardHistory.h"
 #include "FlashcardLinearBrowserActivity.h"
+#include "FlashcardPlanRefresh.h"
 #include "FlashcardSettingsActivity.h"
 #include "FlashcardSpacedListActivity.h"
 #include "FlashcardStatsActivity.h"
 #include "FlashcardStore.h"
-#include "FlashcardUi.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
 #include "components/UITheme.h"
+#include "components/themes/zarzard/ZarzardFlashcards.h"
 #include "fontIds.h"
 
 namespace {
@@ -39,15 +44,47 @@ void FlashcardHomeActivity::onEnter() {
     startActivityForResult(std::make_unique<FlashcardDateActivity>(renderer, mappedInput),
                            [this](const ActivityResult&) {
                              FlashcardClockSync::noteToday();
+                             loadFigures();
                              requestUpdate();
                            });
     return;
   }
   FlashcardClockSync::noteToday();
+  loadFigures();
   requestUpdate();
 }
 
+// Cheap reads only; a stale Spaced count is redone after the first frame.
+void FlashcardHomeActivity::loadFigures() {
+  cardsToday = -1;
+  countPending = false;
+  weekTotal = 0;
+  std::fill(std::begin(week), std::end(week), 0);
+  const uint32_t today = FlashcardSrs::getToday();
+  if (today == 0) return;
+  if (FLASHCARD_STORE.homeCardsDay == today) {
+    cardsToday = FLASHCARD_STORE.homeCardsToday;
+  } else {
+    countPending = true;
+  }
+  const uint32_t from = today >= 6 ? today - 6 : 0;
+  for (const auto& r : FlashcardHistory::readRange(from, today)) {
+    const uint32_t cards = r.cards();
+    week[r.day - from] = static_cast<uint16_t>(std::min<uint32_t>(cards, UINT16_MAX));
+    weekTotal += cards;
+  }
+}
+
 void FlashcardHomeActivity::loop() {
+  if (countPending && firstRenderDone) {
+    flashcardCountCardsToday(FlashcardSrs::getToday());  // reads every deck
+    {
+      RenderLock lock(*this);
+      loadFigures();
+    }
+    requestUpdate();
+    return;
+  }
   buttonNavigator.onNext([this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, ROW_COUNT);
     requestUpdate();
@@ -64,7 +101,10 @@ void FlashcardHomeActivity::loop() {
   }
   if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm)) return;
 
-  const auto back = [this](const ActivityResult&) { requestUpdate(); };
+  const auto back = [this](const ActivityResult&) {
+    loadFigures();
+    requestUpdate();
+  };
   switch (selectedIndex) {
     case ROW_SPACED:
       startActivityForResult(std::make_unique<FlashcardSpacedListActivity>(renderer, mappedInput), back);
@@ -82,27 +122,26 @@ void FlashcardHomeActivity::loop() {
 }
 
 void FlashcardHomeActivity::render(RenderLock&&) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
+  ZarzardUi::FlashcardHubView view;
+  view.selected = selectedIndex;
+  view.title = tr(STR_FLASHCARDS);
+  view.spacedLabel = tr(STR_ZZ_SPACED);
+  view.linearLabel = tr(STR_ZZ_LINEAR);
+  view.statsLabel = tr(STR_FLASHCARD_STATS);
+  view.settingsLabel = tr(STR_SETTINGS_TITLE);
+  view.cardsToday = cardsToday;
+  view.dueLabel = tr(STR_ZZ_DUE_TODAY);
+  view.dateUnknownLabel = tr(STR_ZZ_DATE_UNKNOWN);
+  std::copy(std::begin(week), std::end(week), std::begin(view.week));
+  view.weekTotal = weekTotal;
+  view.weekLabel = tr(STR_ZZ_THIS_WEEK);
+  view.batteryPercent = powerManager.getBatteryPercentage();
+  view.showBatteryPercent = SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
 
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FLASHCARDS));
-
-  FlashcardUi::Row rows[ROW_COUNT];
-  rows[ROW_SPACED].title = tr(STR_FLASHCARD_SPACED);
-  rows[ROW_SPACED].subtitle = tr(STR_FLASHCARD_SPACED_DESC);
-  rows[ROW_LINEAR].title = tr(STR_FLASHCARD_LINEAR);
-  rows[ROW_LINEAR].subtitle = tr(STR_FLASHCARD_LINEAR_DESC);
-  rows[ROW_STATS].title = tr(STR_FLASHCARD_STATS);
-  rows[ROW_STATS].subtitle = tr(STR_FLASHCARD_STATS_DESC);
-  rows[ROW_SETTINGS].title = tr(STR_FLASHCARD_SETTINGS);
-
-  const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int height = pageHeight - top - metrics.buttonHintsHeight - metrics.verticalSpacing;
-  FlashcardUi::drawRows(renderer, Rect{0, top, pageWidth, height}, rows, ROW_COUNT, selectedIndex);
-
+  ZarzardUi::drawFlashcardHub(renderer, view);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
+  firstRenderDone = true;
 }

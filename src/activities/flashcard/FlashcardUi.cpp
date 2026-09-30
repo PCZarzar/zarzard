@@ -33,25 +33,25 @@ void drawRows(GfxRenderer& renderer, const Rect& rect, const Row* rows, const in
     if (row.header) {
       // Section label, bottom-aligned in its slot with a rule under it.
       const int textY = y + rowH - rowPad - titleH;
-      renderer.drawText(UI_12_FONT_ID, x + 10, textY, row.title, true, EpdFontFamily::BOLD);
-      renderer.drawLine(x, y + rowH - 4, x + w, y + rowH - 4, true);
+      renderer.drawText(UI_12_FONT_ID, x + 14, textY, row.title, true, EpdFontFamily::BOLD);
+      renderer.drawLine(x + 14, y + rowH - 4, x + w - 14, y + rowH - 4, true);
       y += rowH;
       continue;
     }
     const bool inv = (i == selected);
-    if (inv) renderer.fillRect(x, y, w, rowH, true);
+    if (inv) renderer.fillRoundedRect(x, y + 2, w, rowH - 4, 12, Color::Black);
 
     int valueW = 0;
     if (row.value && row.value[0]) {
       valueW = renderer.getTextWidth(UI_12_FONT_ID, row.value, EpdFontFamily::BOLD);
-      renderer.drawText(UI_12_FONT_ID, x + w - 10 - valueW, y + rowPad, row.value, !inv, EpdFontFamily::BOLD);
+      renderer.drawText(UI_12_FONT_ID, x + w - 14 - valueW, y + rowPad, row.value, !inv, EpdFontFamily::BOLD);
     }
-    const int titleMaxW = w - 20 - (valueW ? valueW + 10 : 0);
+    const int titleMaxW = w - 28 - (valueW ? valueW + 10 : 0);
     const std::string title = renderer.truncatedText(UI_12_FONT_ID, row.title, titleMaxW);
-    renderer.drawText(UI_12_FONT_ID, x + 10, y + rowPad, title.c_str(), !inv);
+    renderer.drawText(UI_12_FONT_ID, x + 14, y + rowPad, title.c_str(), !inv);
     if (row.subtitle && row.subtitle[0]) {
-      const std::string sub = renderer.truncatedText(SMALL_FONT_ID, row.subtitle, w - 20);
-      renderer.drawText(SMALL_FONT_ID, x + 10, y + rowPad + titleH + 2, sub.c_str(), !inv);
+      const std::string sub = renderer.truncatedText(SMALL_FONT_ID, row.subtitle, w - 28);
+      renderer.drawText(SMALL_FONT_ID, x + 14, y + rowPad + titleH + 2, sub.c_str(), !inv);
     }
     y += rowH;
   }

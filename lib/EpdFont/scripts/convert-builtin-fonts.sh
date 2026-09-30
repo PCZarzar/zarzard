@@ -79,6 +79,38 @@ for size in ${UI_FONT_SIZES[@]}; do
   done
 done
 
+# Zarzard UI: Manrope (Medium as regular, SemiBold as bold) first, Ubuntu and
+# the Noto scripts behind it so every language keeps its glyphs.
+for size in ${UI_FONT_SIZES[@]}; do
+  for style in ${UI_FONT_STYLES[@]}; do
+    cut=$([ "$style" = "Bold" ] && echo SemiBold || echo Medium)
+    font_name="manrope_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
+    python fontconvert.py $font_name $size ../builtinFonts/source/Manrope/Manrope-${cut}.ttf \
+      ../builtinFonts/source/Ubuntu/Ubuntu-${style}.ttf \
+      ../builtinFonts/source/NotoSansHebrew/NotoSansHebrew-${style}.ttf \
+      ../builtinFonts/source/NotoSansArabic/NotoSansArabic-${style}.ttf \
+      ../builtinFonts/source/Ubuntu/Ubuntu-Vietnamese-${style}.ttf \
+      --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/${font_name}.h
+    echo "Generated ../builtinFonts/${font_name}.h"
+  done
+done
+
+# Zarzard small UI text (hints, battery, status): Manrope first.
+python fontconvert.py manrope_8_regular 8 \
+  ../builtinFonts/source/Manrope/Manrope-Medium.ttf \
+  ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf \
+  ../builtinFonts/source/NotoSansHebrew/NotoSansHebrew-Regular.ttf \
+  ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Regular.ttf \
+  --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/manrope_8_regular.h
+
+# Zarzard titles and figures (Latin only).
+python fontconvert.py manrope_14_bold 14 ../builtinFonts/source/Manrope/Manrope-SemiBold.ttf \
+  --only-intervals 0x20,0x7E --only-intervals 0xA0,0xFF --only-intervals 0x2010,0x2027 > ../builtinFonts/manrope_14_bold.h
+python fontconvert.py manrope_18_bold 18 ../builtinFonts/source/Manrope/Manrope-SemiBold.ttf \
+  --only-intervals 0x20,0x7E --only-intervals 0xA0,0xFF --only-intervals 0x2010,0x2027 > ../builtinFonts/manrope_18_bold.h
+python fontconvert.py manrope_40_digits 40 ../builtinFonts/source/Manrope/Manrope-SemiBold.ttf \
+  --only-intervals 0x25,0x25 --only-intervals 0x2F,0x39 > ../builtinFonts/manrope_40_digits.h
+
 # Flashcard card text: Latin-only subsets (Basic Latin, Latin-1 Supplement,
 # General Punctuation) keep the large sizes small.
 FLASHCARD_INTERVALS="--only-intervals 0x20,0x7E --only-intervals 0xA0,0xFF --only-intervals 0x2010,0x2027"
