@@ -1,0 +1,36 @@
+zarzard
+Copyright (c) 2026 Pedro Zarzar
+
+Released under the MIT License (see LICENSE).
+
+-----------------------------------------------------------------------------
+Based on
+-----------------------------------------------------------------------------
+
+CrossPoint Reader — Copyright (c) 2025 Dave Allie and contributors, MIT License.
+https://github.com/crosspoint-reader/crosspoint-reader
+Its original README is kept at docs/CROSSPOINT_README.md.
+
+FreeInk SDK (freeink-sdk/) — Copyright (c) 2026 FreeInk, MIT License, with its
+own third-party notices in freeink-sdk/NOTICE.
+
+-----------------------------------------------------------------------------
+Included in the firmware
+-----------------------------------------------------------------------------
+
+wolfSSL (Arduino-wolfSSL) — GPLv2 or later. Because the firmware binaries link
+wolfSSL, they are distributed under the GPL; this repository is their complete
+corresponding source.
+
+Manrope — SIL Open Font License 1.1
+(lib/EpdFont/builtinFonts/source/Manrope/OFL.txt).
+Noto Serif, Noto Sans, Noto Sans Hebrew, Noto Sans Arabic, JetBrains Mono,
+OpenDyslexic — SIL Open Font License 1.1 (licenses next to each font source).
+Ubuntu Font — Ubuntu Font Licence 1.0.
+The 戦え mark is drawn from Noto Serif CJK JP — SIL Open Font License 1.1.
+
+Phosphor Icons — Copyright (c) 2023 Phosphor Icons, MIT License
+(scripts/zarzard_icons/svg/LICENSE-phosphor).
+
+Other libraries fetched at build time (ArduinoJson, SdFat, JPEGDEC, PNGdec,
+QRCode, WebSockets, expat, miniz, uzlib, ...) keep their own licenses.
