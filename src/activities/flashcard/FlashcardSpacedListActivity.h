@@ -43,8 +43,6 @@ class FlashcardSpacedListActivity final : public Activity {
   FlashcardNextDeck resolveNextDeck();
   static FlashcardNextDeck resolveNextDeckThunk(void* self);
 
-  void loopInput();
-
  public:
   explicit FlashcardSpacedListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("FlashcardSpacedList", renderer, mappedInput) {}

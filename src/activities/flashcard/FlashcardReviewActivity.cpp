@@ -206,14 +206,7 @@ void FlashcardReviewActivity::saveLinearProgress() {
 
 // ─── Input ───────────────────────────────────────────────────────────────────
 
-// Input changes the state render() reads (queues, lists, card text), so it
-// runs under the render lock; the render task waits for it, never the reverse.
 void FlashcardReviewActivity::loop() {
-  RenderLock lock(*this);
-  loopInput();
-}
-
-void FlashcardReviewActivity::loopInput() {
   if (mode == ReviewMode::Spaced && pendingSave) {
     if (!saveProgress()) requestUpdate();  // shows the failure over the card
     pendingSave = false;
@@ -247,15 +240,27 @@ void FlashcardReviewActivity::loopInput() {
 
   // Back side: Back→Again, Left/Up→Hard, Right/Down→Good, Confirm→Easy
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    rateCard(SrsRating::Again);
+    {
+      RenderLock lock(*this);  // changes what render() reads
+      rateCard(SrsRating::Again);
+    }
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
              mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    rateCard(SrsRating::Hard);
+    {
+      RenderLock lock(*this);  // changes what render() reads
+      rateCard(SrsRating::Hard);
+    }
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
              mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    rateCard(SrsRating::Good);
+    {
+      RenderLock lock(*this);  // changes what render() reads
+      rateCard(SrsRating::Good);
+    }
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    rateCard(SrsRating::Easy);
+    {
+      RenderLock lock(*this);  // changes what render() reads
+      rateCard(SrsRating::Easy);
+    }
   }
 }
 
@@ -271,13 +276,22 @@ void FlashcardReviewActivity::loopLinear() {
     case CardState::Back:
       // Back→Missed, Left/Up→Unsure, Right/Down→Known, Confirm→nothing
       if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-        markLinear(LinearPile::Missed);
+        {
+          RenderLock lock(*this);  // changes what render() reads
+          markLinear(LinearPile::Missed);
+        }
       } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
                  mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-        markLinear(LinearPile::Unsure);
+        {
+          RenderLock lock(*this);  // changes what render() reads
+          markLinear(LinearPile::Unsure);
+        }
       } else if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
                  mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-        markLinear(LinearPile::Known);
+        {
+          RenderLock lock(*this);  // changes what render() reads
+          markLinear(LinearPile::Known);
+        }
       }
       break;
     case CardState::Summary:
@@ -303,6 +317,7 @@ void FlashcardReviewActivity::loopSummary() {
   }
   if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm)) return;
 
+  RenderLock lock(*this);  // a new pass changes what render() reads
   switch (summaryOptions[summarySelected]) {
     case SummaryOption::Repeat:
       linear.startRepeatPass(esp_random());
@@ -548,10 +563,12 @@ bool FlashcardReviewActivity::canChangeCards() const { return deckLoaded && (who
 bool FlashcardReviewActivity::handleHold() {
   if (!currentCard()) return false;
   if (mappedInput.wasLongPressed(MappedInputManager::Button::Up, HOLD_MS)) {
+    RenderLock lock(*this);  // changes what render() reads
     toggleMark();
     return true;
   }
   if (mappedInput.wasLongPressed(MappedInputManager::Button::Down, HOLD_MS)) {
+    RenderLock lock(*this);
     openMenu();
     return true;
   }
@@ -717,6 +734,7 @@ void FlashcardReviewActivity::loopMenu() {
     return;
   }
   if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm) || menuItems.empty()) return;
+  RenderLock lock(*this);  // card actions change what render() reads
   switch (menuItems[menuSelected]) {
     case MenuItem::ToggleMark:
       resumeCardTimer();
@@ -753,6 +771,7 @@ void FlashcardReviewActivity::loopConfirm() {
     return;
   }
   if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm)) return;
+  RenderLock lock(*this);  // deleting changes what render() reads
   if (single) {
     statusMsg = tr(STR_FLASHCARD_CARD_DELETED);
     cardState = menuReturn;

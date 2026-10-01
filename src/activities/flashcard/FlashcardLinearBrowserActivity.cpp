@@ -163,14 +163,7 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
       });
 }
 
-// Input changes the state render() reads (queues, lists, card text), so it
-// runs under the render lock; the render task waits for it, never the reverse.
 void FlashcardLinearBrowserActivity::loop() {
-  RenderLock lock(*this);
-  loopInput();
-}
-
-void FlashcardLinearBrowserActivity::loopInput() {
   if (choosingStart) {
     buttonNavigator.onNext([this] {
       startChoice = ButtonNavigator::nextIndex(startChoice, 2);
@@ -204,6 +197,7 @@ void FlashcardLinearBrowserActivity::loopInput() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (!folder.empty()) {
+      RenderLock lock(*this);  // reload() rebuilds the list render() reads
       // Up to /flashcard, with the folder we came from selected.
       const std::string from = folder;
       folder.clear();
@@ -221,6 +215,7 @@ void FlashcardLinearBrowserActivity::loopInput() {
 
   const Item& it = items[selectedIndex];
   if (it.isFolder) {
+    RenderLock lock(*this);  // reload() rebuilds the list render() reads
     folder = it.name;
     selectedIndex = 0;
     reload();

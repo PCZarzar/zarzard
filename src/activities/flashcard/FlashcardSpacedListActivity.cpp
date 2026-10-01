@@ -157,14 +157,7 @@ void FlashcardSpacedListActivity::openSync() {
   });
 }
 
-// Input changes the state render() reads (queues, lists, card text), so it
-// runs under the render lock; the render task waits for it, never the reverse.
 void FlashcardSpacedListActivity::loop() {
-  RenderLock lock(*this);
-  loopInput();
-}
-
-void FlashcardSpacedListActivity::loopInput() {
   if (items.empty()) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) finish();
     return;
