@@ -14,6 +14,15 @@
 // Like the firmware, a HalFile that was never given to an open call has no
 // implementation: any call on it (close() included) is a fatal assert there,
 // so the stub aborts too.
+// Fault injection for the tests: reads of auditEofPath return 0 (a premature
+// EOF) from byte auditEofAfter on, starting with its auditEofOpen-th opening;
+// closing auditCloseFailPath reports a failure.
+inline std::string auditEofPath;
+inline std::string auditCloseFailPath;
+inline size_t auditEofAfter = SIZE_MAX;
+inline int auditReadOpen = 0;
+inline int auditEofOpen = 1;
+
 class HalFile {
  public:
   HalFile() = default;
@@ -56,8 +65,9 @@ class HalFile {
   }
   bool close() {
     requireImpl();
+    const bool ok = name != auditCloseFailPath;
     release();
-    return true;
+    return ok;
   }
   size_t write(const uint8_t* d, size_t n) {
     requireImpl();
@@ -66,6 +76,7 @@ class HalFile {
   size_t write(const void* d, size_t n) { return write(static_cast<const uint8_t*>(d), n); }
   int read(void* d, size_t n) {
     requireImpl();
+    if (name == auditEofPath && auditReadOpen >= auditEofOpen && position() >= auditEofAfter) return 0;
     return fp ? (int)fread(d, 1, n, fp) : -1;
   }
   int available() {
@@ -119,6 +130,8 @@ class HalStorage {
   bool openFileForRead(const char*, const char* path, HalFile& f) {
     f.release();
     f.hasImpl = true;
+    f.name = path;
+    if (f.name == auditEofPath) ++auditReadOpen;
     f.fp = fopen(host(path).c_str(), "rb");
     return f.fp != nullptr;
   }
@@ -126,6 +139,7 @@ class HalStorage {
   bool openFileForWrite(const char*, const char* path, HalFile& f) {
     f.release();
     f.hasImpl = true;
+    f.name = path;
     f.fp = fopen(host(path).c_str(), "wb");
     return f.fp != nullptr;
   }

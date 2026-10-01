@@ -180,6 +180,7 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
   // Pass 2: build the cards. Strings are copied at their exact size.
   HalFile file;
   if (!Storage.openFileForRead(TAG, path, file)) return false;
+  const size_t expectedSize = file.size();
   FlashcardCsvReader reader(file);
   FlashcardCsvReader::Record rec;
   reader.skipHeader();
@@ -207,8 +208,8 @@ bool FlashcardDeck::loadFromCsv(const char* path) {
     card.offset = rec.offset;
     cards.push_back(std::move(card));
   }
-  if (reader.failed()) {
-    LOG_ERR(TAG, "Read error: %s", path);
+  if (reader.failed() || (!truncated && (reader.bytesRead() != expectedSize || cards.size() != count))) {
+    LOG_ERR(TAG, "Incomplete or invalid read: %s", path);
     cards.clear();
     return false;
   }
@@ -341,8 +342,8 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
     if (card.flags & FlashcardCard::FLAG_DELETED) continue;
     ok = writeCardLine(out, card, scratch);
   }
-  out.close();
-  if (!commitTmp(path, tmpPath, ok)) return false;
+  const bool closed = out.close();
+  if (!commitTmp(path, tmpPath, ok && closed)) return false;
   LOG_DBG(TAG, "Saved %u cards to %s", (unsigned)cards.size(), path);
   return true;
 }
@@ -357,7 +358,9 @@ bool FlashcardDeck::rewriteCsv(const char* path, const CardEdit edit, void* ctx)
     Storage.remove(tmpPath.c_str());
     return false;
   }
-  bool ok = out.write(reinterpret_cast<const uint8_t*>(CSV_HEADER), sizeof(CSV_HEADER) - 1) == sizeof(CSV_HEADER) - 1;
+  const size_t expectedSize = in.size();
+  bool ok = expectedSize > 0 &&
+            out.write(reinterpret_cast<const uint8_t*>(CSV_HEADER), sizeof(CSV_HEADER) - 1) == sizeof(CSV_HEADER) - 1;
   FlashcardCsvReader reader(in);
   FlashcardCsvReader::Record rec;
   reader.skipHeader();
@@ -379,13 +382,13 @@ bool FlashcardDeck::rewriteCsv(const char* path, const CardEdit edit, void* ctx)
     ok = writeCardLine(out, card, scratch);
     ++kept;
   }
-  if (reader.failed()) {
-    LOG_ERR(TAG, "Read error: %s", path);
+  if (reader.failed() || reader.bytesRead() != expectedSize) {
+    LOG_ERR(TAG, "Incomplete or invalid read: %s", path);
     ok = false;
   }
   in.close();
-  out.close();
-  if (!commitTmp(path, tmpPath, ok)) return false;
+  const bool closed = out.close();
+  if (!commitTmp(path, tmpPath, ok && closed)) return false;
   LOG_DBG(TAG, "Rewrote %s (%u cards)", path, (unsigned)kept);
   return true;
 }

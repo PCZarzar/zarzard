@@ -15,7 +15,7 @@ class HalFile;
 // bytes dropped); host tests compare both on generated files.
 class FlashcardCsvReader {
  public:
-  static constexpr size_t MAX_FIELD_BYTES = 4096;  // longer fields are cut (sanity limit)
+  static constexpr size_t MAX_FIELD_BYTES = 4096;  // longer fields fail the read (never silently truncate)
 
   struct Record {
     std::string id, front, back, due, interval, ease, flags;

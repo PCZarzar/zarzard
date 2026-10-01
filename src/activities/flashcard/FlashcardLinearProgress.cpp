@@ -65,6 +65,10 @@ bool save(const std::string& deckPath, const Saved& saved) {
   writeArray(doc, "missed", saved.state.missed);
   writeArray(doc, "unsure", saved.state.unsure);
   writeArray(doc, "known", saved.state.known);
+  if (doc.overflowed()) {
+    LOG_ERR("FCLP", "Not enough memory to save linear progress: %s", deckPath.c_str());
+    return false;  // Preserve the last valid checkpoint.
+  }
   const bool ok = PersistableStoreBase::writeDocToFile(progressPath(deckPath).c_str(), doc);
   if (!ok) LOG_ERR("FCLP", "Failed to save linear progress for %s", deckPath.c_str());
   return ok;

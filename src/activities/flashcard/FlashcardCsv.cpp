@@ -54,8 +54,12 @@ char FlashcardCsvReader::get() {
 
 void FlashcardCsvReader::readField(std::string& out) {
   out.clear();
-  const auto append = [&out](char c) {
-    if (out.size() < MAX_FIELD_BYTES) out += c;
+  const auto append = [this, &out](char c) {
+    if (out.size() < MAX_FIELD_BYTES) {
+      out += c;
+    } else {
+      error = true;  // Never accept a lossy parse for a file that may be rewritten.
+    }
   };
   char c = peek();
   if (c == '\0') return;

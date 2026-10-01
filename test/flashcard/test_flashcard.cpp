@@ -1532,6 +1532,63 @@ static void testCardActionsLowMemory(const std::string& root) {
   fs::remove_all(fc);
 }
 
+// A deck file read short (field over the limit, premature EOF) or a .tmp that
+// fails to close never replaces the original.
+static void testIncompleteReadsKeepOriginal(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc);
+  const std::string header = "card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n";
+  auto make = [&](const std::string& name, int n, int len) {
+    std::ofstream out(fc + "/" + name, std::ios::binary);
+    out << header;
+    for (int i = 1; i <= n; ++i) out << i << ',' << std::string(len, 'A') << ",ANSWER,,,250,\n";
+  };
+  auto noop = [](FlashcardCard&, void*) {};
+
+  make("long.csv", 1, 5000);
+  std::string original = slurp(fc + "/long.csv");
+  FlashcardDeck a;
+  CHECK_EQ(a.loadFromCsv("/flashcard/long.csv"), false);
+  CHECK_EQ(FlashcardDeck::rewriteCsv("/flashcard/long.csv", noop, nullptr), false);
+  CHECK_EQ(slurp(fc + "/long.csv") == original, true);
+
+  make("rewrite.csv", 12, 90);
+  original = slurp(fc + "/rewrite.csv");
+  auditEofPath = "/flashcard/rewrite.csv";
+  auditEofAfter = 512;
+  auditEofOpen = 1;
+  auditReadOpen = 0;
+  CHECK_EQ(FlashcardDeck::rewriteCsv(auditEofPath.c_str(), noop, nullptr), false);
+  auditEofPath.clear();
+  CHECK_EQ(slurp(fc + "/rewrite.csv") == original, true);
+
+  make("load.csv", 12, 90);
+  original = slurp(fc + "/load.csv");
+  auditEofPath = "/flashcard/load.csv";
+  auditEofOpen = 2;  // the counting pass reads it whole, the building pass stops early
+  auditReadOpen = 0;
+  FlashcardDeck b;
+  CHECK_EQ(b.loadFromCsv(auditEofPath.c_str()), false);
+  auditEofPath.clear();
+  auditEofAfter = SIZE_MAX;
+  CHECK_EQ(b.getCards().empty(), true);
+  CHECK_EQ(slurp(fc + "/load.csv") == original, true);
+
+  make("close.csv", 2, 30);
+  original = slurp(fc + "/close.csv");
+  FlashcardDeck c;
+  CHECK_EQ(c.loadFromCsv("/flashcard/close.csv"), true);
+  auditCloseFailPath = "/flashcard/close.csv.tmp";
+  CHECK_EQ(c.saveToCsv("/flashcard/close.csv"), false);
+  CHECK_EQ(slurp(fc + "/close.csv") == original, true);
+  CHECK_EQ(FlashcardDeck::rewriteCsv("/flashcard/close.csv", noop, nullptr), false);
+  CHECK_EQ(slurp(fc + "/close.csv") == original, true);
+  auditCloseFailPath.clear();
+  fs::remove_all(fc);
+}
+
 static void testLinearExclude() {
   FlashcardLinearSession s;
   s.start(6, false, 1);        // queue 0..5 in order
@@ -1660,6 +1717,7 @@ int main(int argc, char** argv) {
   testCardFlags(Storage.root);
   testCardActionsOnFiles(Storage.root);
   testCardActionsLowMemory(Storage.root);
+  testIncompleteReadsKeepOriginal(Storage.root);
   testLinearExclude();
   testLinearPassSurvivesDeletion(Storage.root);
   testSummariesPath();

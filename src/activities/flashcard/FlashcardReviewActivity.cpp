@@ -847,6 +847,7 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
 
   // The buttons follow the front-button remap: labels and icons are mapped
   // the same way, then matched by position.
+  char intervals[4][16] = {};  // Must outlive drawActionButtons below.
   ZarzardUi::ActionButton buttons[4];
   auto place = [this, &buttons](const char* const labels[4], const char* const subs[4],
                                 const ZarzardIcons::Icon* const icons[4]) {
@@ -889,7 +890,6 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
       const char* const labels[4] = {tr(STR_FLASHCARD_AGAIN), tr(STR_FLASHCARD_EASY), tr(STR_FLASHCARD_HARD),
                                      tr(STR_FLASHCARD_GOOD)};
       // previewInterval returns one static buffer: copy each result.
-      char intervals[4][16];
       const SrsRating ratings[4] = {SrsRating::Again, SrsRating::Easy, SrsRating::Hard, SrsRating::Good};
       for (int i = 0; i < 4; ++i) {
         snprintf(intervals[i], sizeof(intervals[i]), "%s", FlashcardSrs::previewInterval(card.srs, ratings[i]));
