@@ -12,7 +12,7 @@ constexpr int CARD_RADIUS = 20;
 
 void drawIcon(const GfxRenderer& renderer, const ZarzardIcons::Icon& icon, int x, int y, bool black = true);
 void drawPicture(const GfxRenderer& renderer, const ZarzardIcons::Picture& picture, int x, int y, bool black = true);
-// The boot and sleep mark: 戦え, a rule, the spaced name, a rule, centered.
+// The boot and sleep mark (戦え, rules, the spaced name), centered.
 void drawMark(const GfxRenderer& renderer, bool black = true);
 // Rounded card: filled black when selected, 2 px outline otherwise.
 void drawCard(const GfxRenderer& renderer, int x, int y, int w, int h, bool selected, int radius = CARD_RADIUS);
