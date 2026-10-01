@@ -1,7 +1,7 @@
 # zarzard
 
 **戦え — fight.** A study firmware for the Xteink X4 e-reader: spaced-repetition
-flashcards, linear review, study statistics and summaries, on top of a full
+flashcards, drill, study statistics and summaries, on top of a full
 EPUB reader.
 
 Zarzard is a fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader)
@@ -14,7 +14,7 @@ its own look.
   folders).
   - **Spaced review** (SM-2): Again / Hard / Good / Easy, a daily new-card limit
     shared across decks, free days, decks in stand-by or reviews-only.
-  - **Linear review**: go through a deck (or a whole folder) in order or
+  - **Drill**: go through a deck (or a whole folder) in order or
     shuffled; sort cards into Missed / Unsure / Known, then repeat the ones you
     missed. The pass is saved and survives sleep.
   - While reviewing: mark, suspend, skip, reset or delete a card.
