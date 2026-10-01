@@ -487,6 +487,14 @@ void releaseSdFontCachesForDecode(const GfxRenderer& renderer) {
 
 }  // namespace
 
+namespace {
+// Black-and-white sleep screens: the single-pass HALF refresh by default, the
+// full waveform when the user asked for it to clear ghosts of the UI.
+HalDisplay::RefreshMode sleepRefresh() {
+  return SETTINGS.sleepFullRefresh ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
+}
+}  // namespace
+
 void SleepActivity::onEnter() {
   Activity::onEnter();
 
@@ -601,7 +609,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(sleepRefresh());
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
@@ -635,7 +643,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
     // the differential nudge then lands unevenly (blotchy noise in gray areas).
     renderer.displayGrayscaleBase(HalDisplay::HALF_REFRESH);
   } else {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.displayBuffer(sleepRefresh());
   }
 
   if (hasGreyscale) {
@@ -835,5 +843,5 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(sleepRefresh());
 }

@@ -280,6 +280,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t uiTheme = ZARZARD;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
+  // Sleep screens drawn in black and white take the full (multi-flash) refresh, clearing ghosts.
+  uint8_t sleepFullRefresh = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
