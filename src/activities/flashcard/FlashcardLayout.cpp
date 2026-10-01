@@ -197,6 +197,25 @@ int pickMonoFont(const GfxRenderer& r, const std::string& text, int maxWidth, in
   return JETBRAINSMONO_14_FONT_ID;
 }
 
+namespace {
+// Keeps the first maxLines lines. When some are dropped, the last kept line
+// ends in "…" so a cut card never passes for a whole one.
+void keepLines(const GfxRenderer& r, const int font, std::vector<std::string>& lines, const int maxLines,
+               const int maxWidth) {
+  if (static_cast<int>(lines.size()) <= maxLines) return;
+  lines.resize(std::max(0, maxLines));
+  if (lines.empty()) return;
+  static const std::string ELLIPSIS = "\xE2\x80\xA6";
+  std::string& last = lines.back();
+  while (!last.empty() && r.getTextWidth(font, (last + ELLIPSIS).c_str()) > maxWidth) {
+    while (!last.empty() && (static_cast<unsigned char>(last.back()) & 0xC0) == 0x80) last.pop_back();
+    if (!last.empty()) last.pop_back();  // the lead byte of the codepoint
+  }
+  while (!last.empty() && last.back() == ' ') last.pop_back();
+  last += ELLIPSIS;
+}
+}  // namespace
+
 FrontLayout layoutFront(const GfxRenderer& r, const std::string& main, const std::string& hint, const CardArea& area,
                         const int hintFont) {
   FrontLayout out;
@@ -205,23 +224,23 @@ FrontLayout layoutFront(const GfxRenderer& r, const std::string& main, const std
   const int hintLineH = std::max(1, r.getLineHeight(hintFont));
   // A very long hint keeps at most half of the area, like the question on the back.
   const int maxHintShare = std::max(1, (area.bottom - area.top) / 2 / hintLineH);
-  if ((int)out.hintLines.size() > maxHintShare) out.hintLines.resize(maxHintShare);
+  keepLines(r, hintFont, out.hintLines, maxHintShare, area.width);
   const int hintReserve = out.hintLines.empty() ? 0 : hintLineH * (int)out.hintLines.size() + area.spacing;
   const int mainAvail = std::max(0, area.bottom - area.top - hintReserve);
 
   out.mainFont = pickMainFont(r, main, area.width, mainAvail, out.mainLines);
   const int mainLineH = std::max(1, r.getLineHeight(out.mainFont));
   // Text too long even at the smallest size: keep what fits (at least one
-  // line), then give the hint whatever room is left. Nothing is drawn past
+  // line, the last one marked as cut), then give the hint whatever room is left. Nothing is drawn past
   // area.bottom, over the button hints.
   const int areaH = std::max(0, area.bottom - area.top);
   const int maxMainLines = std::max(1, mainAvail / mainLineH);
-  if ((int)out.mainLines.size() > maxMainLines) out.mainLines.resize(maxMainLines);
+  keepLines(r, out.mainFont, out.mainLines, maxMainLines, area.width);
   const int blockH = mainLineH * (int)out.mainLines.size();
   if (!out.hintLines.empty()) {
     const int hintRoom = areaH - blockH - area.spacing;
     const int maxHintLines = hintRoom > 0 ? hintRoom / hintLineH : 0;
-    if ((int)out.hintLines.size() > maxHintLines) out.hintLines.resize(std::max(0, maxHintLines));
+    keepLines(r, hintFont, out.hintLines, maxHintLines, area.width);
   }
   const int hintH = out.hintLines.empty() ? 0 : hintLineH * (int)out.hintLines.size() + area.spacing;
   out.mainY = area.top + std::max(0, (areaH - hintH - blockH) / 2);
@@ -238,7 +257,7 @@ BackLayout layoutBack(const GfxRenderer& r, const std::string& question, const s
   const int qLineH = r.getLineHeight(questionFont);
   // A very long question keeps at most half of the area for itself.
   const int maxQuestionLines = std::max(1, (area.bottom - area.top) / 2 / std::max(1, qLineH));
-  if ((int)out.questionLines.size() > maxQuestionLines) out.questionLines.resize(maxQuestionLines);
+  keepLines(r, questionFont, out.questionLines, maxQuestionLines, area.width);
 
   int y = area.top + qLineH * (int)out.questionLines.size() + area.spacing;
   out.separatorY = y;
@@ -255,7 +274,7 @@ BackLayout layoutBack(const GfxRenderer& r, const std::string& question, const s
   }
   const int lineH = r.getLineHeight(out.answerFont);
   const int maxLines = lineH > 0 ? budget / lineH : 0;
-  if ((int)out.answerLines.size() > maxLines) out.answerLines.resize(std::max(0, maxLines));
+  keepLines(r, out.answerFont, out.answerLines, maxLines, area.width);
   const int blockH = lineH * (int)out.answerLines.size();
   out.answerY = answerTop + std::max(0, (budget - blockH) / 2);
   return out;

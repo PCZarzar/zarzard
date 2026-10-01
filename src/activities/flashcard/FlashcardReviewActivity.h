@@ -54,7 +54,9 @@ class FlashcardReviewActivity final : public Activity {
 
   void flipCard();
   void rateCard(SrsRating rating);
-  void saveProgress();
+  // True when everything that needed saving reached the SD card.
+  bool saveProgress();
+  void startSpacedSession();
   void showDone();
   void markLinear(LinearPile pile);
   void loopLinear();
@@ -72,6 +74,7 @@ class FlashcardReviewActivity final : public Activity {
   void startCardTimer();
   void resumeCardTimer();  // after the card menu: shift the timer by the time spent in it
   const char* doneMessage() const;
+  bool saveFailed = false;  // the last save did not reach the SD card: say so
 
   // Card actions (hold side Up: mark, hold side Down: menu).
   bool onCardScreen() const { return cardState == CardState::Front || cardState == CardState::Back; }

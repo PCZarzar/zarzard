@@ -40,10 +40,11 @@ static constexpr int CONTENT_W = SCREEN_W - SIDE_PAD * 2;
 FONT(ns14, notoserif_14_regular)
 FONT(ns16, notoserif_16_regular)
 FONT(ns18, notoserif_18_regular)
-FONT(ns20, notoserif_20_regular) FONT(ns22, notoserif_22_regular) FONT(ns24, notoserif_24_regular)
-    FONT(jb14, jetbrainsmono_14_regular) FONT(jb16, jetbrainsmono_16_regular) FONT(jb18, jetbrainsmono_18_regular)
-        FONT(jb20, jetbrainsmono_20_regular) FONT(jb22, jetbrainsmono_22_regular) FONT(jb24, jetbrainsmono_24_regular)
-            FONT(ui12, ubuntu_12_regular) FONT(ui10, ubuntu_10_regular)
+FONT(ns20, notoserif_20_regular)
+FONT(ns22, notoserif_22_regular) FONT(ns24, notoserif_24_regular) FONT(jb14, jetbrainsmono_14_regular)
+    FONT(jb16, jetbrainsmono_16_regular) FONT(jb18, jetbrainsmono_18_regular) FONT(jb20, jetbrainsmono_20_regular)
+        FONT(jb22, jetbrainsmono_22_regular) FONT(jb24, jetbrainsmono_24_regular) FONT(ui12, ubuntu_12_regular)
+            FONT(ui10, ubuntu_10_regular)
 
                 static const char* fontName(int id) {
   switch (id) {
@@ -221,6 +222,18 @@ int main(int argc, char** argv) {
     const std::string huge = hugeFront + "\\ " + hugeHint + " \\";
     const auto hf = layFront(r, card(huge.c_str(), "x"));
     EXPECT(!hf.lines.empty(), "huge front still shows lines");
+    // Text that does not fit even at the smallest size says it was cut.
+    auto endsCut = [](const std::vector<std::string>& lines) {
+      const std::string mark = "\xE2\x80\xA6";
+      return !lines.empty() && lines.back().size() >= mark.size() &&
+             lines.back().compare(lines.back().size() - mark.size(), mark.size(), mark) == 0;
+    };
+    EXPECT(endsCut(hf.lines), "cut front ends in an ellipsis");
+    std::string endless;
+    for (int i = 0; i < 400; ++i) endless += "palavra ";
+    const auto cutBack = layBack(r, card("q", endless.c_str()));
+    EXPECT(endsCut(cutBack.lines), "cut answer ends in an ellipsis");
+    EXPECT(!endsCut(layBack(r, card("q", "resposta curta")).lines), "whole answer has no ellipsis");
     std::string longQuestion;
     for (int i = 0; i < 80; ++i) longQuestion += "pergunta ";
     const auto q = layBack(r, card(longQuestion.c_str(), "`/etc/fstab`"));

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "FlashcardCatalog.h"
 #include "FlashcardClock.h"
@@ -113,6 +114,11 @@ void FlashcardReviewActivity::onEnter() {
     return;
   }
 
+  startSpacedSession();
+}
+
+// Today's Spaced queue: due cards first, then new cards within today's quota.
+void FlashcardReviewActivity::startSpacedSession() {
   today = FlashcardSrs::getToday();
   if (!deckLoaded || deck.isTruncated() || today == 0) {
     // Nothing that could be saved, or no trustworthy date (mode selection
@@ -144,7 +150,11 @@ void FlashcardReviewActivity::onExit() {
   if (mode == ReviewMode::Spaced && (unsavedRatings > 0 || newQuotaDirty)) saveProgress();
   // Deck files first: a whole folder's saved pass is renumbered against them.
   if (!pendingActions.empty()) {
-    FlashcardCardActions::applyToFiles(pendingActions);
+    const size_t applied = FlashcardCardActions::applyToFiles(pendingActions);
+    if (applied < pendingActions.size()) {
+      LOG_ERR("FCRV", "%u of %u card actions not saved", (unsigned)(pendingActions.size() - applied),
+              (unsigned)pendingActions.size());
+    }
     pendingActions.clear();
   }
   if (mode == ReviewMode::Linear && (linearDirty || structureChanged)) saveLinearProgress();
@@ -187,6 +197,10 @@ void FlashcardReviewActivity::saveLinearProgress() {
   if (FlashcardLinearProgress::save(deckPath, saved)) {
     linearDirty = false;
     marksSinceSave = 0;
+    saveFailed = false;
+  } else {
+    saveFailed = true;
+    statusMsg = tr(STR_ZZ_SAVE_FAILED);  // kept dirty: retried on the next save
   }
 }
 
@@ -201,7 +215,7 @@ void FlashcardReviewActivity::loop() {
 
 void FlashcardReviewActivity::loopInput() {
   if (mode == ReviewMode::Spaced && pendingSave) {
-    saveProgress();
+    if (!saveProgress()) requestUpdate();  // shows the failure over the card
     pendingSave = false;
   }
   if (cardState == CardState::Menu) {
@@ -331,6 +345,14 @@ void FlashcardReviewActivity::flipCard() {
 
 void FlashcardReviewActivity::rateCard(SrsRating rating) {
   statusMsg = nullptr;
+  // Studying past midnight: what was rated so far stays on its day, this card
+  // is rated on the new one, then the queue is rebuilt for the new day.
+  const uint32_t now = FlashcardSrs::getToday();
+  const bool newDay = now != 0 && now != today;
+  if (newDay) {
+    saveProgress();
+    today = now;
+  }
   const size_t cardIdx = reviewQueue[currentQueueIndex];
   auto& card = deck.getCards()[cardIdx];
   const bool wasNew = card.isNew();
@@ -356,6 +378,14 @@ void FlashcardReviewActivity::rateCard(SrsRating rating) {
   currentQueueIndex++;
   if (++unsavedRatings >= SAVE_EVERY_RATINGS) pendingSave = true;  // flushed by loop() after the render
 
+  if (newDay) {
+    saveProgress();
+    pendingSave = false;
+    cardState = CardState::Front;
+    startSpacedSession();
+    return;
+  }
+
   if (currentQueueIndex >= reviewQueue.size()) {
     saveProgress();
     pendingSave = false;
@@ -366,22 +396,29 @@ void FlashcardReviewActivity::rateCard(SrsRating rating) {
   }
 }
 
-// Spaced only: persist the deck and, with it, the daily new-card counter.
-void FlashcardReviewActivity::saveProgress() {
-  if (!deckLoaded) return;  // never overwrite a CSV we could not read
+// Spaced only: persist the deck and, with it, the daily new-card counter. What
+// fails stays dirty in RAM, is retried on the next save, and is reported.
+bool FlashcardReviewActivity::saveProgress() {
+  if (!deckLoaded) return true;  // never overwrite a CSV we could not read
+  bool ok = true;
   if (unsavedRatings > 0) {
     if (deck.saveToCsv(deckPath.c_str())) {
       unsavedRatings = 0;
+      FLASHCARD_STORE.homeCardsDay = 0;  // today's count changed: Home and the hub count again
     } else {
       LOG_ERR("FCRV", "Failed to save %s", deckPath.c_str());
+      ok = false;
     }
   }
   if (newQuotaDirty) {
-    FLASHCARD_STORE.saveToFile();
-    FLASHCARD_DECK_OPTIONS.saveToFile();
-    newQuotaDirty = false;
+    const bool quotas = FLASHCARD_STORE.saveToFile() && FLASHCARD_DECK_OPTIONS.saveToFile();
+    if (quotas) newQuotaDirty = false;
+    ok = ok && quotas;
   }
-  FlashcardHistory::flush();
+  ok = FlashcardHistory::flush() && ok;
+  saveFailed = !ok;
+  if (!ok) statusMsg = tr(STR_ZZ_SAVE_FAILED);
+  return ok;
 }
 
 // startActivityForResult so Done pops Review too when it finishes; Done's
@@ -423,6 +460,7 @@ void FlashcardReviewActivity::markLinear(LinearPile pile) {
 }
 
 const char* FlashcardReviewActivity::doneMessage() const {
+  if (saveFailed) return tr(STR_ZZ_SAVE_FAILED);
   if (deckLoaded && mode == ReviewMode::Linear && linearDeckSize() == 0) return tr(STR_FLASHCARD_ALL_SUSPENDED);
   if (deckLoaded) return nullptr;
   return deckPath == FLASHCARD_HARD_KEY ? tr(STR_FLASHCARD_NO_HARD) : tr(STR_FLASHCARD_NOT_LOADED);
@@ -899,7 +937,10 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
       // previewInterval returns one static buffer: copy each result.
       const SrsRating ratings[4] = {SrsRating::Again, SrsRating::Easy, SrsRating::Hard, SrsRating::Good};
       for (int i = 0; i < 4; ++i) {
-        snprintf(intervals[i], sizeof(intervals[i]), "%s", FlashcardSrs::previewInterval(card.srs, ratings[i]));
+        const char* preview = FlashcardSrs::previewInterval(card.srs, ratings[i]);
+        // "<10m" is no timer: the card just comes back later in this session.
+        if (strcmp(preview, "<10m") == 0) preview = tr(STR_ZZ_TODAY);
+        snprintf(intervals[i], sizeof(intervals[i]), "%s", preview);
       }
       const char* const subs[4] = {intervals[0], intervals[1], intervals[2], intervals[3]};
       const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle32, &ZarzardIcons::Lightning32,
