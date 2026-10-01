@@ -20,6 +20,7 @@
 #include "FlashcardDeckOptions.h"
 #include "FlashcardFolderIndex.h"
 #include "FlashcardHistory.h"
+#include "FlashcardLinearProgress.h"
 #include "FlashcardLinearSession.h"
 #include "FlashcardMemory.h"
 #include "FlashcardPeriods.h"
@@ -1589,6 +1590,39 @@ static void testIncompleteReadsKeepOriginal(const std::string& root) {
   fs::remove_all(fc);
 }
 
+// Linear checkpoints go through a .tmp: a save cut between removing the old
+// file and the rename leaves the new checkpoint in the .tmp, and load takes it.
+static void testLinearProgressRecovery(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string deck = "/flashcard/F/x.csv";
+  FlashcardLinearProgress::Saved s;
+  s.fingerprint = 1234;
+  s.state.pass = 2;
+  s.state.position = 1;
+  s.state.queue = {3, 1, 4};
+  s.state.missed = {3};
+  CHECK_EQ(FlashcardLinearProgress::save(deck, s), true);
+  FlashcardLinearProgress::Saved back;
+  CHECK_EQ(FlashcardLinearProgress::load(deck, back), true);
+  CHECK_EQ(back.state.pass, (uint16_t)2);
+  CHECK_EQ(back.state.queue.size(), (size_t)3);
+  // Find the checkpoint file and leave only its .tmp, as an interrupted save would.
+  std::string file;
+  for (const auto& e : fs::directory_iterator(root + "/.crosspoint")) {
+    const std::string n = e.path().filename().string();
+    if (n.rfind("fc_linear_", 0) == 0 && n.size() > 5 && n.substr(n.size() - 5) == ".json") file = e.path().string();
+  }
+  CHECK_EQ(file.empty(), false);
+  CHECK_EQ(fs::exists(file + ".tmp"), false);  // a finished save leaves no .tmp
+  fs::rename(file, file + ".tmp");
+  FlashcardLinearProgress::Saved recovered;
+  CHECK_EQ(FlashcardLinearProgress::load(deck, recovered), true);
+  CHECK_EQ(recovered.state.position, (size_t)1);
+  CHECK_EQ(fs::exists(file), true);
+  FlashcardLinearProgress::clear(deck);
+  CHECK_EQ(fs::exists(file) || fs::exists(file + ".tmp"), false);
+}
+
 static void testLinearExclude() {
   FlashcardLinearSession s;
   s.start(6, false, 1);        // queue 0..5 in order
@@ -1718,6 +1752,7 @@ int main(int argc, char** argv) {
   testCardActionsOnFiles(Storage.root);
   testCardActionsLowMemory(Storage.root);
   testIncompleteReadsKeepOriginal(Storage.root);
+  testLinearProgressRecovery(Storage.root);
   testLinearExclude();
   testLinearPassSurvivesDeletion(Storage.root);
   testSummariesPath();

@@ -15,6 +15,7 @@ class PersistableStoreBase {
 
  public:
   static bool writeDocToFile(const char* path, const JsonDocument& doc) {
+    if (doc.overflowed()) return false;  // like the firmware: never write an incomplete document
     std::string json;
     serializeJson(doc, json);
     const std::filesystem::path host(Storage.host(path));

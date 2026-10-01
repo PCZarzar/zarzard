@@ -13,7 +13,7 @@ CXX="g++ -std=gnu++2a -Uunix -O1 -Wall -Wextra -I$HERE/stubs -I$FC -I$REPO/lib/M
 $CXX -I"$REPO/src" "$HERE/test_flashcard.cpp" "$FC/FlashcardDeck.cpp" "$FC/FlashcardSrs.cpp" "$FC/FlashcardClock.cpp" \
   "$FC/FlashcardCatalog.cpp" "$FC/FlashcardCsv.cpp" "$FC/FlashcardFolderIndex.cpp" "$HERE/stubs/FlashcardMemoryStub.cpp" \
   "$FC/FlashcardPlanner.cpp" "$FC/FlashcardDeckOptions.cpp" "$FC/FlashcardHistory.cpp" "$FC/FlashcardPeriods.cpp" \
-  "$FC/FlashcardStatsScan.cpp" "$FC/FlashcardCardActions.cpp" -o "$OUT/test_flashcard"
+  "$FC/FlashcardStatsScan.cpp" "$FC/FlashcardCardActions.cpp" "$FC/FlashcardLinearProgress.cpp" -o "$OUT/test_flashcard"
 TZ=UTC "$OUT/test_flashcard" "$OUT"
 
 # Layout check with real font metrics (acceptance 8)

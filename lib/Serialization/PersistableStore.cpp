@@ -8,6 +8,12 @@
 #include <limits>
 
 bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& doc) {
+  // A document that ran out of memory while being filled is incomplete: never
+  // let it replace the file.
+  if (doc.overflowed()) {
+    LOG_ERR("PERSIST", "Not writing %s: document incomplete (out of memory)", path);
+    return false;
+  }
   Storage.mkdir("/.crosspoint");
   String json;
   serializeJson(doc, json);

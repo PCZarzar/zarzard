@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <PersistableStore.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <vector>
 
@@ -43,8 +44,13 @@ bool readArray(const JsonDocument& doc, const char* key, std::vector<size_t>& ou
 }  // namespace
 
 bool load(const std::string& deckPath, Saved& out) {
+  const std::string path = progressPath(deckPath);
+  const std::string tmp = path + ".tmp";
+  // A save interrupted between removing the old file and the rename left the
+  // new checkpoint only in the .tmp: take it.
+  if (!Storage.exists(path.c_str()) && Storage.exists(tmp.c_str())) Storage.rename(tmp.c_str(), path.c_str());
   JsonDocument doc;
-  if (!PersistableStoreBase::readDocFromFile(progressPath(deckPath).c_str(), doc)) return false;
+  if (!PersistableStoreBase::readDocFromFile(path.c_str(), doc)) return false;
   // Guards against a hash collision between two deck paths.
   if ((doc["v"] | static_cast<uint8_t>(0)) != FORMAT_VERSION || deckPath != (doc["deck"] | "")) return false;
   out.fingerprint = doc["fp"] | static_cast<uint32_t>(0);
@@ -69,14 +75,31 @@ bool save(const std::string& deckPath, const Saved& saved) {
     LOG_ERR("FCLP", "Not enough memory to save linear progress: %s", deckPath.c_str());
     return false;  // Preserve the last valid checkpoint.
   }
-  const bool ok = PersistableStoreBase::writeDocToFile(progressPath(deckPath).c_str(), doc);
-  if (!ok) LOG_ERR("FCLP", "Failed to save linear progress for %s", deckPath.c_str());
+  // Written to a .tmp, read back, then renamed over the old file: the last
+  // good checkpoint survives a failed write or a power cut (load() recovers a
+  // lone .tmp).
+  const std::string path = progressPath(deckPath);
+  const std::string tmp = path + ".tmp";
+  JsonDocument check;
+  bool ok = PersistableStoreBase::writeDocToFile(tmp.c_str(), doc) &&
+            PersistableStoreBase::readDocFromFile(tmp.c_str(), check) &&
+            (check["pos"] | static_cast<uint32_t>(UINT32_MAX)) == static_cast<uint32_t>(saved.state.position);
+  if (ok && !Storage.rename(tmp.c_str(), path.c_str())) {
+    Storage.remove(path.c_str());
+    ok = Storage.rename(tmp.c_str(), path.c_str());
+  }
+  if (!ok) {
+    if (Storage.exists(tmp.c_str()) && Storage.exists(path.c_str())) Storage.remove(tmp.c_str());
+    LOG_ERR("FCLP", "Failed to save linear progress for %s", deckPath.c_str());
+  }
   return ok;
 }
 
 void clear(const std::string& deckPath) {
   const std::string path = progressPath(deckPath);
+  const std::string tmp = path + ".tmp";
   if (Storage.exists(path.c_str())) Storage.remove(path.c_str());
+  if (Storage.exists(tmp.c_str())) Storage.remove(tmp.c_str());
 }
 
 }  // namespace FlashcardLinearProgress
