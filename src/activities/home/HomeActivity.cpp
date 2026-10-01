@@ -20,6 +20,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/flashcard/FlashcardDeckOptions.h"
 #include "activities/flashcard/FlashcardHistory.h"
 #include "activities/flashcard/FlashcardHomeActivity.h"
 #include "activities/flashcard/FlashcardPlanRefresh.h"
@@ -127,6 +128,11 @@ void HomeActivity::onEnter() {
 
   zarzard = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::ZARZARD;
   if (zarzard) {
+    // Read the flashcard stores before Home uses them: counting today's cards
+    // saves them, and saving the never-loaded defaults wiped the user's
+    // settings, the last known day and every deck's options.
+    FLASHCARD_STORE.loadFromFile();
+    FLASHCARD_DECK_OPTIONS.loadFromFile();
     zzBuildItems();
     selectorIndex = 0;
     for (size_t i = 0; i < zzItems.size(); ++i) {
