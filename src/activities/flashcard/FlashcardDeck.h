@@ -49,6 +49,8 @@ struct DeckStats {
   uint16_t markedCards = 0;
 };
 
+class HalFile;
+
 class FlashcardDeck {
  public:
   // Decode /n sequences to newlines; "\/" is a literal '/' (no newline).
@@ -74,6 +76,14 @@ class FlashcardDeck {
   // Cards flagged DELETED are left out. Refuses to write a truncated deck
   // (would drop the cards past the limit).
   bool saveToCsv(const char* path) const;
+
+  // Rewrites the CSV at `path` one card at a time, without loading the deck:
+  // edit(card, ctx) may change a card or flag it DELETED (left out). A few KB
+  // of RAM whatever the deck size, so it also works on decks over
+  // MAX_CARDS_PER_DECK. False if the file cannot be read or written (it is then
+  // left as it was).
+  using CardEdit = void (*)(FlashcardCard& card, void* ctx);
+  static bool rewriteCsv(const char* path, CardEdit edit, void* ctx);
 
   // Hash of every card's id, front and back (not the SRS columns nor flags), so
   // saved linear progress can tell whether the deck's cards changed.
@@ -130,6 +140,13 @@ class FlashcardDeck {
 
   // Append field to out, quoting if necessary for CSV compliance.
   static void writeCsvField(std::string& out, const std::string& field);
+
+  // Save helpers shared by saveToCsv and rewriteCsv: open `path`.tmp for
+  // writing (restoring a .tmp left by an interrupted save first), write one
+  // card line, then replace `path` with the .tmp (or drop it when !ok).
+  static bool openTmp(const char* path, const std::string& tmpPath, HalFile& out);
+  static bool writeCardLine(HalFile& out, const FlashcardCard& card, std::string& scratch);
+  static bool commitTmp(const char* path, const std::string& tmpPath, bool ok);
 
   // Convert "my_deck.csv" -> "my deck".
   static std::string fileNameToDisplayName(const std::string& filename);

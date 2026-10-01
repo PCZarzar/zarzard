@@ -255,18 +255,7 @@ std::string FlashcardDeck::displayNameForPath(const std::string& path) {
   return fileNameToDisplayName(sep == std::string::npos ? path : path.substr(sep + 1));
 }
 
-bool FlashcardDeck::saveToCsv(const char* path) const {
-  if (truncated) {
-    LOG_ERR(TAG, "Not saving truncated deck (> %u cards): %s", (unsigned)MAX_CARDS_PER_DECK, path);
-    return false;
-  }
-  // Stream the CSV directly to the SD card one line at a time. The previous
-  // implementation built the whole file in a std::string and then copied it
-  // into an Arduino String before writing — under -fno-exceptions this
-  // aborted (→ reboot) on larger decks when free heap was already consumed
-  // by two font caches. ~200 bytes of stack + a 2KB line buffer is enough.
-  std::string tmpPath = std::string(path) + ".tmp";
-
+bool FlashcardDeck::openTmp(const char* path, const std::string& tmpPath, HalFile& out) {
   // A previous save that failed after removing the CSV left the only complete
   // copy in the .tmp; put it back before the .tmp is truncated below.
   if (!Storage.exists(path) && Storage.exists(tmpPath.c_str())) {
@@ -275,65 +264,54 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
       return false;
     }
   }
-
-  HalFile out;
   if (!Storage.openFileForWrite(TAG, tmpPath, out)) {
     LOG_ERR(TAG, "Failed to open tmp file: %s", tmpPath.c_str());
     return false;
   }
+  return true;
+}
 
+bool FlashcardDeck::writeCardLine(HalFile& out, const FlashcardCard& card, std::string& scratch) {
   auto writeAll = [&](const char* data, size_t len) -> bool {
     return out.write(reinterpret_cast<const uint8_t*>(data), len) == len;
   };
-  auto writeStr = [&](const std::string& s) -> bool { return writeAll(s.data(), s.size()); };
-
-  bool ok = writeAll(CSV_HEADER, sizeof(CSV_HEADER) - 1);
-
-  std::string lineField;
-  char dateBuf[12];
   char numBuf[16];
-  for (const auto& card : cards) {
-    if (!ok) break;
-    if (card.flags & FlashcardCard::FLAG_DELETED) continue;
-    int n = snprintf(numBuf, sizeof(numBuf), "%u,", (unsigned)card.id);
+  int n = snprintf(numBuf, sizeof(numBuf), "%u,", (unsigned)card.id);
+  bool ok = writeAll(numBuf, (size_t)n);
+
+  scratch.clear();
+  writeCsvField(scratch, card.frontContent);
+  scratch += ',';
+  writeCsvField(scratch, card.backContent);
+  scratch += ',';
+  ok = ok && writeAll(scratch.data(), scratch.size());
+
+  if (card.srs.dueDate != 0) {
+    char dateBuf[12];
+    FlashcardSrs::formatDateStr(card.srs.dueDate, dateBuf, sizeof(dateBuf));
+    n = snprintf(numBuf, sizeof(numBuf), "%s,", dateBuf);
     ok = ok && writeAll(numBuf, (size_t)n);
-
-    lineField.clear();
-    writeCsvField(lineField, card.frontContent);
-    ok = ok && writeStr(lineField);
-    ok = ok && writeAll(",", 1);
-
-    lineField.clear();
-    writeCsvField(lineField, card.backContent);
-    ok = ok && writeStr(lineField);
-    ok = ok && writeAll(",", 1);
-
-    if (card.srs.dueDate != 0) {
-      FlashcardSrs::formatDateStr(card.srs.dueDate, dateBuf, sizeof(dateBuf));
-      n = snprintf(numBuf, sizeof(numBuf), "%s,", dateBuf);
-      ok = ok && writeAll(numBuf, (size_t)n);
-      n = snprintf(numBuf, sizeof(numBuf), "%u,", (unsigned)card.srs.interval);
-      ok = ok && writeAll(numBuf, (size_t)n);
-      n = snprintf(numBuf, sizeof(numBuf), "%u", (unsigned)card.srs.ease);
-      ok = ok && writeAll(numBuf, (size_t)n);
-    } else {
-      ok = ok && writeAll(",,", 2);
-    }
-    char flags[4] = ",";
-    size_t flagLen = 1;
-    if (card.isMarked()) flags[flagLen++] = 'm';
-    if (card.isSuspended()) flags[flagLen++] = 's';
-    ok = ok && writeAll(flags, flagLen);
-    ok = ok && writeAll("\n", 1);
+    n = snprintf(numBuf, sizeof(numBuf), "%u,", (unsigned)card.srs.interval);
+    ok = ok && writeAll(numBuf, (size_t)n);
+    n = snprintf(numBuf, sizeof(numBuf), "%u", (unsigned)card.srs.ease);
+    ok = ok && writeAll(numBuf, (size_t)n);
+  } else {
+    ok = ok && writeAll(",,", 2);
   }
+  char flags[4] = ",";
+  size_t flagLen = 1;
+  if (card.isMarked()) flags[flagLen++] = 'm';
+  if (card.isSuspended()) flags[flagLen++] = 's';
+  ok = ok && writeAll(flags, flagLen);
+  return ok && writeAll("\n", 1);
+}
 
-  out.close();
+bool FlashcardDeck::commitTmp(const char* path, const std::string& tmpPath, const bool ok) {
   if (!ok) {
     Storage.remove(tmpPath.c_str());
     LOG_ERR(TAG, "Failed streaming write: %s", tmpPath.c_str());
     return false;
   }
-
   // Try rename directly (FAT rename replaces destination atomically on most impls).
   // If that fails, fall back to remove-then-rename.
   if (!Storage.rename(tmpPath.c_str(), path)) {
@@ -343,8 +321,72 @@ bool FlashcardDeck::saveToCsv(const char* path) const {
       return false;
     }
   }
+  return true;
+}
 
+bool FlashcardDeck::saveToCsv(const char* path) const {
+  if (truncated) {
+    LOG_ERR(TAG, "Not saving truncated deck (> %u cards): %s", (unsigned)MAX_CARDS_PER_DECK, path);
+    return false;
+  }
+  // Streamed to the SD card one line at a time: building the file in RAM
+  // aborted (→ reboot) on larger decks when the heap was already low.
+  const std::string tmpPath = std::string(path) + ".tmp";
+  HalFile out;
+  if (!openTmp(path, tmpPath, out)) return false;
+  bool ok = out.write(reinterpret_cast<const uint8_t*>(CSV_HEADER), sizeof(CSV_HEADER) - 1) == sizeof(CSV_HEADER) - 1;
+  std::string scratch;
+  for (const auto& card : cards) {
+    if (!ok) break;
+    if (card.flags & FlashcardCard::FLAG_DELETED) continue;
+    ok = writeCardLine(out, card, scratch);
+  }
+  out.close();
+  if (!commitTmp(path, tmpPath, ok)) return false;
   LOG_DBG(TAG, "Saved %u cards to %s", (unsigned)cards.size(), path);
+  return true;
+}
+
+bool FlashcardDeck::rewriteCsv(const char* path, const CardEdit edit, void* ctx) {
+  const std::string tmpPath = std::string(path) + ".tmp";
+  HalFile out;
+  if (!openTmp(path, tmpPath, out)) return false;
+  HalFile in;
+  if (!Storage.openFileForRead(TAG, path, in)) {
+    out.close();
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+  bool ok = out.write(reinterpret_cast<const uint8_t*>(CSV_HEADER), sizeof(CSV_HEADER) - 1) == sizeof(CSV_HEADER) - 1;
+  FlashcardCsvReader reader(in);
+  FlashcardCsvReader::Record rec;
+  reader.skipHeader();
+  uint16_t nextId = 1;
+  FlashcardCard card;
+  std::string scratch;
+  size_t kept = 0;
+  while (ok && reader.next(rec)) {
+    // Built like loadFromCsv builds its cards, so ids and offsets match.
+    card.id = rec.id.empty() ? nextId : (uint16_t)atoi(rec.id.c_str());
+    nextId = card.id + 1;
+    card.frontContent = rec.front;
+    card.backContent = rec.back;
+    card.srs = rec.srs();
+    card.flags = rec.flagBits();
+    card.offset = rec.offset;
+    edit(card, ctx);
+    if (card.flags & FlashcardCard::FLAG_DELETED) continue;
+    ok = writeCardLine(out, card, scratch);
+    ++kept;
+  }
+  if (reader.failed()) {
+    LOG_ERR(TAG, "Read error: %s", path);
+    ok = false;
+  }
+  in.close();
+  out.close();
+  if (!commitTmp(path, tmpPath, ok)) return false;
+  LOG_DBG(TAG, "Rewrote %s (%u cards)", path, (unsigned)kept);
   return true;
 }
 

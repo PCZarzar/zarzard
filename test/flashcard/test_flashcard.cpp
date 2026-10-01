@@ -1461,16 +1461,74 @@ static void testCardActionsOnFiles(const std::string& root) {
   }
   CHECK_EQ(FlashcardCardActions::collectFlagged({"/flashcard/F/x.csv"}, 100).size(), (size_t)1);
   CHECK_EQ(FlashcardCardActions::collectFlagged({"/flashcard/F/x.csv"}, 0).size(), (size_t)0);
-  // A deck over the card limit is never rewritten
+  // A deck over the card limit is rewritten card by card: nothing past the
+  // limit is lost.
   std::string big = "h\n";
-  for (int i = 1; i <= 505; ++i) big += std::to_string(i) + ",q,a,,,\n";
+  for (int i = 1; i <= 505; ++i) big += std::to_string(i) + ",q" + std::to_string(i) + ",a,,,\n";
   std::ofstream(fc + "/big.csv", std::ios::binary) << big;
   FlashcardDeck b;
   b.loadFromCsv("/flashcard/big.csv");
   CHECK_EQ(
       FlashcardCardActions::applyToFiles({{"/flashcard/big.csv", b.getCards()[0].offset, FlashcardCardAction::Delete}}),
-      (size_t)0);
-  CHECK_EQ(slurp(fc + "/big.csv"), big);
+      (size_t)1);
+  {
+    const std::string after = slurp(fc + "/big.csv");
+    CHECK_EQ(std::count(after.begin(), after.end(), '\n'), (std::ptrdiff_t)505);  // header + 504 cards
+    CHECK_EQ(after.find(",q1,") == std::string::npos, true);
+    CHECK_EQ(after.find("505,q505,a,,,,\n") != std::string::npos, true);
+  }
+  fs::remove_all(fc);
+}
+
+// Clean-up actions work with almost no free heap: the deck is never loaded.
+static void testCardActionsLowMemory(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard";
+  fs::remove_all(fc);
+  fs::create_directories(fc + "/F");
+  std::ofstream(fc + "/F/a.csv", std::ios::binary)
+      << "card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n"
+      << "1,f1,b1,,,,m\n2,f2,b2,05/01/2026,3,250,\n3,f3,b3,,,,ms\n4,f4,b4,,,,s\n";
+  std::ofstream(fc + "/F/b.csv", std::ios::binary)
+      << "card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n"
+      << "1,g1,c1,,,,\n2,g2,c2,,,,m\n";
+  std::ofstream(fc + "/F/c.csv", std::ios::binary)
+      << "card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n1,h1,d1,,,,\n";
+  const std::vector<std::string> decks = {"/flashcard/F/a.csv", "/flashcard/F/b.csv", "/flashcard/F/c.csv"};
+
+  const auto counts = FlashcardCardActions::countFlagged(decks);
+  CHECK_EQ(counts.size(), (size_t)2);  // c.csv has nothing to clean up
+  CHECK_EQ(counts[0].marked, (uint16_t)2);
+  CHECK_EQ(counts[0].suspended, (uint16_t)2);
+  CHECK_EQ(counts[1].marked, (uint16_t)1);
+  CHECK_EQ(counts[1].suspended, (uint16_t)0);
+
+  g_testLargestFreeBlock = 1024;  // far below what loading a deck needs
+  FlashcardDeck probe;
+  CHECK_EQ(probe.loadFromCsv("/flashcard/F/a.csv"), false);  // the old way could not act
+  const auto flagged = FlashcardCardActions::collectFlagged({"/flashcard/F/a.csv"}, 10);
+  CHECK_EQ(FlashcardCardActions::applyToFiles({{flagged[0].path, flagged[0].offset, FlashcardCardAction::Delete}}),
+           (size_t)1);
+  size_t failed = 9;
+  CHECK_EQ(
+      FlashcardCardActions::applyToFlagged(decks, FlashcardCard::FLAG_MARKED, FlashcardCardAction::Delete, &failed),
+      (size_t)2);  // f3 in a, g2 in b
+  CHECK_EQ(failed, (size_t)0);
+  CHECK_EQ(FlashcardCardActions::applyToFlagged(decks, FlashcardCard::FLAG_SUSPENDED, FlashcardCardAction::Unsuspend),
+           (size_t)1);  // f4
+  g_testLargestFreeBlock = SIZE_MAX;
+
+  CHECK_EQ(slurp(fc + "/F/a.csv"), std::string("card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n"
+                                               "2,f2,b2,05/01/2026,3,250,\n4,f4,b4,,,,\n"));
+  CHECK_EQ(slurp(fc + "/F/b.csv"),
+           std::string("card_id,front_content,back_content,sr_due,sr_interval,sr_ease,flags\n1,g1,c1,,,,\n"));
+  CHECK_EQ(FlashcardCardActions::countFlagged(decks).empty(), true);
+  // A deck that cannot be read is reported, not half-written.
+  CHECK_EQ(FlashcardCardActions::applyToFlagged({"/flashcard/F/missing.csv"}, FlashcardCard::FLAG_MARKED,
+                                                FlashcardCardAction::Delete, &failed),
+           (size_t)0);
+  CHECK_EQ(failed, (size_t)1);
+  CHECK_EQ(fs::exists(fc + "/F/missing.csv.tmp"), false);
   fs::remove_all(fc);
 }
 
@@ -1601,6 +1659,7 @@ int main(int argc, char** argv) {
   testStatsScan(Storage.root);
   testCardFlags(Storage.root);
   testCardActionsOnFiles(Storage.root);
+  testCardActionsLowMemory(Storage.root);
   testLinearExclude();
   testLinearPassSurvivesDeletion(Storage.root);
   testSummariesPath();

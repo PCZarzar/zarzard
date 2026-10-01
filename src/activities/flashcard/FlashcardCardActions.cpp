@@ -35,34 +35,96 @@ void apply(FlashcardCard& card, const FlashcardCardAction action) {
   }
 }
 
+namespace {
+// One deck's share of applyToFiles: the actions on it, in order.
+struct DeckEdits {
+  const std::vector<Pending>* actions;
+  std::vector<size_t> mine;  // indices into actions
+  size_t applied = 0;
+};
+
+void editByOffset(FlashcardCard& card, void* ctx) {
+  auto& e = *static_cast<DeckEdits*>(ctx);
+  for (const size_t i : e.mine) {
+    const Pending& p = (*e.actions)[i];
+    if (p.offset != card.offset || (card.flags & FlashcardCard::FLAG_DELETED)) continue;
+    apply(card, p.action);
+    ++e.applied;
+  }
+}
+
+struct FlagEdit {
+  uint8_t mask;
+  FlashcardCardAction action;
+  size_t changed = 0;
+};
+
+void editByFlag(FlashcardCard& card, void* ctx) {
+  auto& e = *static_cast<FlagEdit*>(ctx);
+  if (!(card.flags & e.mask)) return;
+  apply(card, e.action);
+  ++e.changed;
+}
+}  // namespace
+
 size_t applyToFiles(const std::vector<Pending>& actions) {
   size_t applied = 0;
   std::vector<bool> done(actions.size(), false);
   for (size_t first = 0; first < actions.size(); ++first) {
     if (done[first]) continue;
     const std::string& path = actions[first].path;
-    FlashcardDeck deck;
-    const bool loaded = deck.loadFromCsv(path.c_str()) && !deck.isTruncated();
-    size_t here = 0;
+    DeckEdits edits{&actions, {}, 0};
     for (size_t i = first; i < actions.size(); ++i) {
       if (done[i] || actions[i].path != path) continue;
       done[i] = true;
-      if (!loaded) continue;
-      const int idx = deck.findByOffset(actions[i].offset);
-      if (idx < 0) {
-        LOG_ERR(TAG, "Card at %lu not found in %s", static_cast<unsigned long>(actions[i].offset), path.c_str());
-        continue;
-      }
-      apply(deck.getCards()[idx], actions[i].action);
-      ++here;
+      edits.mine.push_back(i);
     }
-    if (!loaded) {
-      LOG_ERR(TAG, "Cannot change %s (unreadable or over %u cards)", path.c_str(), (unsigned)MAX_CARDS_PER_DECK);
+    if (!FlashcardDeck::rewriteCsv(path.c_str(), editByOffset, &edits)) {
+      LOG_ERR(TAG, "Cannot change %s", path.c_str());
       continue;
     }
-    if (here > 0 && deck.saveToCsv(path.c_str())) applied += here;
+    if (edits.applied < edits.mine.size()) {
+      LOG_ERR(TAG, "%u action(s) found no card in %s", (unsigned)(edits.mine.size() - edits.applied), path.c_str());
+    }
+    applied += edits.applied;
   }
   return applied;
+}
+
+size_t applyToFlagged(const std::vector<std::string>& deckPaths, const uint8_t flagMask,
+                      const FlashcardCardAction action, size_t* failed) {
+  size_t changed = 0;
+  if (failed) *failed = 0;
+  for (const auto& path : deckPaths) {
+    FlagEdit edit{flagMask, action, 0};
+    if (!FlashcardDeck::rewriteCsv(path.c_str(), editByFlag, &edit)) {
+      LOG_ERR(TAG, "Cannot change %s", path.c_str());
+      if (failed) ++*failed;
+      continue;
+    }
+    changed += edit.changed;
+  }
+  return changed;
+}
+
+std::vector<FlaggedCount> countFlagged(const std::vector<std::string>& deckPaths) {
+  std::vector<FlaggedCount> out;
+  FlashcardCsvReader::Record rec;
+  for (const auto& path : deckPaths) {
+    HalFile file;
+    if (!Storage.openFileForRead(TAG, path, file)) continue;
+    FlashcardCsvReader reader(file);
+    reader.skipHeader();
+    FlaggedCount c;
+    c.path = path;
+    while (reader.next(rec)) {
+      const uint8_t flags = rec.flagBits();
+      if (flags & FlashcardCard::FLAG_MARKED) ++c.marked;
+      if (flags & FlashcardCard::FLAG_SUSPENDED) ++c.suspended;
+    }
+    if (c.marked > 0 || c.suspended > 0) out.push_back(std::move(c));
+  }
+  return out;
 }
 
 std::vector<Flagged> collectFlagged(const std::vector<std::string>& deckPaths, const size_t max) {
