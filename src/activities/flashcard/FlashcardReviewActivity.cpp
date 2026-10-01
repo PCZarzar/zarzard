@@ -192,7 +192,14 @@ void FlashcardReviewActivity::saveLinearProgress() {
 
 // ─── Input ───────────────────────────────────────────────────────────────────
 
+// Input changes the state render() reads (queues, lists, card text), so it
+// runs under the render lock; the render task waits for it, never the reverse.
 void FlashcardReviewActivity::loop() {
+  RenderLock lock(*this);
+  loopInput();
+}
+
+void FlashcardReviewActivity::loopInput() {
   if (mode == ReviewMode::Spaced && pendingSave) {
     saveProgress();
     pendingSave = false;

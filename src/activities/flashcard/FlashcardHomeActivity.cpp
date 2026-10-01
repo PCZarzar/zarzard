@@ -43,6 +43,7 @@ void FlashcardHomeActivity::onEnter() {
     askedForDate = true;
     startActivityForResult(std::make_unique<FlashcardDateActivity>(renderer, mappedInput),
                            [this](const ActivityResult&) {
+                             RenderLock lock(*this);
                              FlashcardClockSync::noteToday();
                              loadFigures();
                              requestUpdate();
@@ -102,6 +103,7 @@ void FlashcardHomeActivity::loop() {
   if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm)) return;
 
   const auto back = [this](const ActivityResult&) {
+    RenderLock lock(*this);  // result handlers run unlocked
     loadFigures();
     requestUpdate();
   };

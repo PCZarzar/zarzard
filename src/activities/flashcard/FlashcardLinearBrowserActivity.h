@@ -39,6 +39,8 @@ class FlashcardLinearBrowserActivity final : public Activity {
   FlashcardNextDeck resolveNextDeck();
   static FlashcardNextDeck resolveNextDeckThunk(void* self);
 
+  void loopInput();
+
  public:
   explicit FlashcardLinearBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("FlashcardLinearBrowser", renderer, mappedInput) {}

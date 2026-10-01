@@ -27,6 +27,8 @@ struct FlashcardNextDeckProvider {
 };
 
 class FlashcardReviewActivity final : public Activity {
+  void loopInput();
+
  public:
   enum class ReviewMode : uint8_t { Spaced = 0, Linear = 1 };
 

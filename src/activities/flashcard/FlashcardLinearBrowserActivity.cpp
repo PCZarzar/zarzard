@@ -139,6 +139,7 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
           renderer, mappedInput, currentPath, FlashcardReviewActivity::ReviewMode::Linear, FLASHCARD_STORE.shuffle != 0,
           resume, FlashcardNextDeckProvider{this, &resolveNextDeckThunk}),
       [this](const ActivityResult& result) {
+        RenderLock lock(*this);  // result handlers run unlocked; reload() rebuilds the list render() reads
         const int current = findDeck(currentPath);
         const auto* menu = std::get_if<MenuResult>(&result.data);
         const bool wantsNext = menu && menu->action == FlashcardReviewActivity::RESULT_NEXT_DECK;
@@ -162,7 +163,14 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
       });
 }
 
+// Input changes the state render() reads (queues, lists, card text), so it
+// runs under the render lock; the render task waits for it, never the reverse.
 void FlashcardLinearBrowserActivity::loop() {
+  RenderLock lock(*this);
+  loopInput();
+}
+
+void FlashcardLinearBrowserActivity::loopInput() {
   if (choosingStart) {
     buttonNavigator.onNext([this] {
       startChoice = ButtonNavigator::nextIndex(startChoice, 2);
