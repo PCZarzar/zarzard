@@ -37,11 +37,15 @@ void drawMark(const GfxRenderer& renderer, const bool black) {
 
 void drawCard(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const bool selected,
               const int radius) {
-  if (selected) {
-    renderer.fillRoundedRect(x, y, w, h, radius, Color::Black);
-  } else {
+  if (!selected) {
     renderer.drawRoundedRect(x, y, w, h, 2, radius, true);
+    return;
   }
+  // A heavy border and a small dot, not a black fill: a black block left on
+  // screen (Home waits there until sleep) ghosts through later screens.
+  renderer.drawRoundedRect(x, y, w, h, 5, radius, true);
+  constexpr int DOT = 14;
+  renderer.fillRoundedRect(x + w - 14 - DOT, y + 14, DOT, DOT, DOT / 2, Color::Black);
 }
 
 void drawBar(const GfxRenderer& renderer, const int x, const int y, const int w, const int percent, const bool black,

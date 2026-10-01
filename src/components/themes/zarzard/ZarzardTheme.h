@@ -4,7 +4,7 @@
 
 class GfxRenderer;
 
-// Zarzard: Lyra's layout with rounded black selections, no header rule and
+// Zarzard: Lyra's layout with light rounded selections, no header rule and
 // pill button hints.
 namespace ZarzardMetrics {
 constexpr ThemeMetrics values = {.batteryWidth = 16,
@@ -22,7 +22,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 16,
                                  .listRowRadius = 12,
                                  .listInset = 16,
                                  .listSidePadding = 14,
-                                 .listSelectionStyle = 0,  // black pill
+                                 .listSelectionStyle = 1,  // light pill: no black block to ghost
                                  .listScrollWidth = 4,
                                  .listScrollSide = 0,
                                  .listTitleBold = false,

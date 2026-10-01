@@ -539,6 +539,14 @@ void SleepActivity::onEnter() {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
 
+  if (SETTINGS.sleepFullRefresh) {
+    // Two clean passes: a full refresh to white first draws the last screen's
+    // ghost out (a single pass leaves some behind after dark UI held for
+    // minutes), then the sleep screen gets its own refresh.
+    renderer.clearScreen();
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+  }
+
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();

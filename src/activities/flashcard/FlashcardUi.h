@@ -16,7 +16,7 @@ struct Row {
 };
 
 // Draws rows inside rect, scrolling so that `selected` is visible; the
-// selected row is inverted.
+// selected row gets a heavy outline.
 void drawRows(GfxRenderer& renderer, const Rect& rect, const Row* rows, int count, int selected);
 
 }  // namespace FlashcardUi

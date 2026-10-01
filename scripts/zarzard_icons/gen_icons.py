@@ -53,6 +53,10 @@ out.append(f"inline constexpr uint8_t kSleepMarkBits[] = {{\n    {pack(mark)}}};
 out.append(f"inline constexpr Picture SleepMark{{kSleepMarkBits, {mark.size[0]}, {mark.size[1]}}};")
 out.append(f"// Top edge of the mark on a 480x800 screen; it sits {400 - mark_y} px above the middle.")
 out.append(f"inline constexpr int SLEEP_MARK_ABOVE_CENTER = {400 - mark_y};")
+# 戦え for the Home study card (Noto Serif CJK JP, OFL).
+card = Image.open(os.path.join(HERE, "tatakae_card.pbm")).convert("1")
+out.append(f"inline constexpr uint8_t kTatakaeCardBits[] = {{\n    {pack(card)}}};")
+out.append(f"inline constexpr Picture TatakaeCard{{kTatakaeCardBits, {card.size[0]}, {card.size[1]}}};")
 out += ["", "}  // namespace ZarzardIcons", ""]
 open(OUT, "w").write("\n".join(out))
 print("icons:", len(WANT))
