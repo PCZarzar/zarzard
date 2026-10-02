@@ -17,6 +17,10 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+namespace {
+constexpr unsigned long HOLD_MS = 700;  // Confirm held this long on the Selection: delete it
+}  // namespace
+
 void FlashcardLinearBrowserActivity::onEnter() {
   Activity::onEnter();
   reload();
@@ -228,6 +232,19 @@ void FlashcardLinearBrowserActivity::loop() {
     loopChooser();
     return;
   }
+  if (confirmingDelete) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      confirmingDelete = false;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      RenderLock lock(*this);  // reload() rebuilds the list render() reads
+      confirmingDelete = false;
+      FlashcardLinearProgress::clearSelection(folderDir());
+      reload();
+      requestUpdate();
+    }
+    return;
+  }
   if (choosingOrder) {
     buttonNavigator.onNext([this] {
       orderChoice = ButtonNavigator::nextIndex(orderChoice, 2);
@@ -297,6 +314,12 @@ void FlashcardLinearBrowserActivity::loop() {
     }
     return;
   }
+  if (count > 0 && items[selectedIndex].isSelection &&
+      mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, HOLD_MS)) {
+    confirmingDelete = true;
+    requestUpdate();
+    return;
+  }
   if (count == 0 || !mappedInput.wasReleased(MappedInputManager::Button::Confirm)) return;
 
   const Item& it = items[selectedIndex];
@@ -329,7 +352,8 @@ void FlashcardLinearBrowserActivity::render(RenderLock&&) {
   const int pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  const char* title = choosingDecks    ? tr(STR_ZZ_CHOOSE_DECKS)
+  const char* title = confirmingDelete ? tr(STR_ZZ_SELECTION)
+                      : choosingDecks  ? tr(STR_ZZ_CHOOSE_DECKS)
                       : choosingOrder  ? tr(STR_ZZ_ORDER)
                       : choosingStart  ? items[selectedIndex].name.c_str()
                       : folder.empty() ? tr(STR_FLASHCARD_LINEAR)
@@ -339,6 +363,25 @@ void FlashcardLinearBrowserActivity::render(RenderLock&&) {
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int height = pageHeight - top - metrics.buttonHintsHeight - metrics.verticalSpacing;
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+
+  if (confirmingDelete) {
+    const int width = pageWidth - 2 * metrics.contentSidePadding;
+    int y = pageHeight / 3;
+    for (const auto& l :
+         renderer.wrappedText(UI_12_FONT_ID, tr(STR_ZZ_DELETE_SELECTION_CONFIRM), width, 3, EpdFontFamily::BOLD)) {
+      renderer.drawCenteredText(UI_12_FONT_ID, y, l.c_str(), true, EpdFontFamily::BOLD);
+      y += renderer.getLineHeight(UI_12_FONT_ID);
+    }
+    y += 8;
+    for (const auto& l : renderer.wrappedText(UI_10_FONT_ID, tr(STR_ZZ_DELETE_SELECTION_DESC), width, 3)) {
+      renderer.drawCenteredText(UI_10_FONT_ID, y, l.c_str());
+      y += renderer.getLineHeight(UI_10_FONT_ID);
+    }
+    const auto del = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_DELETE), "", "");
+    GUI.drawButtonHints(renderer, del.btn1, del.btn2, del.btn3, del.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 
   if (choosingDecks) {
     renderChooser(top, height);

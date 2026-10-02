@@ -1662,6 +1662,18 @@ static void testSelectionStore(const std::string& root) {
   CHECK_EQ(sel.size(), (size_t)1);
   CHECK_EQ(sel[0], std::string("/flashcard/L/a.csv"));
   CHECK_EQ(FlashcardLinearProgress::loadSelection("/flashcard/Other").empty(), true);
+  // Deleting the Selection forgets it and its pass; another folder's stays.
+  CHECK_EQ(FlashcardLinearProgress::saveSelection("/flashcard/Other", {"/flashcard/L/a.csv"}), true);
+  FlashcardLinearProgress::Saved pass;
+  pass.state.pass = 1;
+  pass.state.queue = {0};
+  CHECK_EQ(FlashcardLinearProgress::save(FlashcardLinearProgress::selectionKey(dir), pass), true);
+  FlashcardLinearProgress::clearSelection(dir);
+  CHECK_EQ(FlashcardLinearProgress::loadSelection(dir).empty(), true);
+  FlashcardLinearProgress::Saved gone;
+  CHECK_EQ(FlashcardLinearProgress::load(FlashcardLinearProgress::selectionKey(dir), gone), false);
+  CHECK_EQ(FlashcardLinearProgress::loadSelection("/flashcard/Other").size(), (size_t)1);
+  FlashcardLinearProgress::clearSelection("/flashcard/Other");
   fs::remove_all(fc);
 }
 

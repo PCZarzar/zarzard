@@ -29,5 +29,7 @@ bool isSelectionKey(const std::string& key, std::string& folderDirOut);
 bool saveSelection(const std::string& folderDir, const std::vector<std::string>& deckPaths);
 // The saved decks that still exist, in their saved order (empty when none).
 std::vector<std::string> loadSelection(const std::string& folderDir);
+// Forgets the folder's Selection and its saved pass; the decks are untouched.
+void clearSelection(const std::string& folderDir);
 
 }  // namespace FlashcardLinearProgress

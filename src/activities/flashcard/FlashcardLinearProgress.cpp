@@ -151,4 +151,13 @@ std::vector<std::string> loadSelection(const std::string& folderDir) {
   return out;
 }
 
+void clearSelection(const std::string& folderDir) {
+  clear(selectionKey(folderDir));
+  const std::string path = selectionPath(folderDir);
+  JsonDocument doc;
+  if (!PersistableStoreBase::readDocFromFile(path.c_str(), doc)) return;
+  if (folderDir != (doc["folder"] | "")) return;  // another folder's file (hash collision)
+  if (!Storage.remove(path.c_str())) LOG_ERR("FCLP", "Failed to remove the selection for %s", folderDir.c_str());
+}
+
 }  // namespace FlashcardLinearProgress

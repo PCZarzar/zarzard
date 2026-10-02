@@ -10,7 +10,8 @@
 // (one level) and their decks. Inside a folder the first row studies the whole
 // folder as one pass; "Choose decks…" picks some of its decks to study as one
 // pass (the Selection, one per folder). Both ask for the order when a new pass
-// starts: shuffled, or deck by deck in file order.
+// starts: shuffled, or deck by deck in file order. Holding Confirm on the
+// Selection deletes it.
 // Decks (and whole folders) with a saved pass offer Continue / Restart.
 // "Next deck" at the end of a deck's pass moves to the next deck of the folder.
 class FlashcardLinearBrowserActivity final : public Activity {
@@ -43,7 +44,8 @@ class FlashcardLinearBrowserActivity final : public Activity {
   int pickSelected = 0;
   // Order of a new whole-folder or Selection pass.
   bool choosingOrder = false;
-  int orderChoice = 0;  // 0 = shuffled, 1 = in order
+  int orderChoice = 0;            // 0 = shuffled, 1 = in order
+  bool confirmingDelete = false;  // "Delete the selection?"
 
   void reload();
   std::string folderDir() const;
