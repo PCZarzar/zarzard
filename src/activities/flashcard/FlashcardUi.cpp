@@ -47,14 +47,31 @@ void drawRows(GfxRenderer& renderer, const Rect& rect, const Row* rows, const in
       valueW = renderer.getTextWidth(UI_12_FONT_ID, row.value, EpdFontFamily::BOLD);
       renderer.drawText(UI_12_FONT_ID, x + w - 14 - valueW, y + rowPad, row.value, true, EpdFontFamily::BOLD);
     }
-    const int titleMaxW = w - 28 - (valueW ? valueW + 10 : 0);
+    // Multiple choice: a box before the title, ticked when chosen.
+    int textX = x + 14;
+    if (row.check >= 0) {
+      constexpr int BOX = 22;
+      const int boxY = y + rowPad + (titleH - BOX) / 2;
+      if (row.check > 0) {
+        // Ticked: a filled box with a white tick (small, so it does not ghost).
+        renderer.fillRoundedRect(textX, boxY, BOX, BOX, 5, Color::Black);
+        const int xs[] = {textX + 5, textX + 9, textX + 17};
+        const int ys[] = {boxY + 11, boxY + 16, boxY + 6};
+        renderer.drawLine(xs[0], ys[0], xs[1], ys[1], 3, false);
+        renderer.drawLine(xs[1], ys[1], xs[2], ys[2], 3, false);
+      } else {
+        renderer.drawRoundedRect(textX, boxY, BOX, BOX, 2, 5, true);
+      }
+      textX += BOX + 12;
+    }
+    const int titleMaxW = w - (textX - x) - 14 - (valueW ? valueW + 10 : 0);
     const std::string title =
         renderer.truncatedText(UI_12_FONT_ID, row.title, titleMaxW, sel ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    renderer.drawText(UI_12_FONT_ID, x + 14, y + rowPad, title.c_str(), true,
+    renderer.drawText(UI_12_FONT_ID, textX, y + rowPad, title.c_str(), true,
                       sel ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     if (row.subtitle && row.subtitle[0]) {
-      const std::string sub = renderer.truncatedText(SMALL_FONT_ID, row.subtitle, w - 28);
-      renderer.drawText(SMALL_FONT_ID, x + 14, y + rowPad + titleH + 2, sub.c_str());
+      const std::string sub = renderer.truncatedText(SMALL_FONT_ID, row.subtitle, w - (textX - x) - 14);
+      renderer.drawText(SMALL_FONT_ID, textX, y + rowPad + titleH + 2, sub.c_str());
     }
     y += rowH;
   }

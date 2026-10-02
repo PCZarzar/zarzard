@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 
 class GfxRenderer;
@@ -13,6 +14,7 @@ struct Row {
   const char* subtitle = nullptr;  // optional second line, small font
   const char* value = nullptr;     // optional right-aligned value
   bool header = false;             // section label: not selectable, never highlighted
+  int8_t check = -1;               // -1 no box, 0 empty box, 1 ticked box (multiple choice)
 };
 
 // Draws rows inside rect, scrolling so that `selected` is visible; the

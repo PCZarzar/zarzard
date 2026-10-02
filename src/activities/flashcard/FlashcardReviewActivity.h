@@ -102,8 +102,9 @@ class FlashcardReviewActivity final : public Activity {
   bool resumeLinear;
   FlashcardNextDeckProvider nextDeckProvider;
   bool deckLoaded = false;
-  bool wholeFolder = false;          // deckPath ends in '/': Linear over a folder index
-  FlashcardFolderIndex folderIndex;  // whole folder: where each card is on the SD card
+  bool wholeFolder = false;              // deckPath ends in '/': Linear over a folder index
+  FlashcardFolderIndex folderIndex;      // whole folder: where each card is on the SD card
+  std::vector<std::string> folderDecks;  // decks of a whole folder or a Selection, in order
   std::string folderName;
   FlashcardCard folderCard;  // whole folder: the card on screen
   size_t folderCardIndex = SIZE_MAX;

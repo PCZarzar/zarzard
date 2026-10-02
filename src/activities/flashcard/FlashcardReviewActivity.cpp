@@ -60,7 +60,9 @@ FlashcardReviewActivity::FlashcardReviewActivity(GfxRenderer& renderer, MappedIn
 
 void FlashcardReviewActivity::onEnter() {
   Activity::onEnter();
-  wholeFolder = deckPath == FLASHCARD_HARD_KEY || (!deckPath.empty() && deckPath.back() == '/');
+  std::string selectionDir;
+  const bool selection = FlashcardLinearProgress::isSelectionKey(deckPath, selectionDir);
+  wholeFolder = deckPath == FLASHCARD_HARD_KEY || selection || (!deckPath.empty() && deckPath.back() == '/');
   startCardTimer();
   if (deckPath == FLASHCARD_HARD_KEY) {
     // The difficult cards of every deck, read from their CSVs like a whole folder.
@@ -72,11 +74,17 @@ void FlashcardReviewActivity::onEnter() {
       }
     }
     deckLoaded = mode == ReviewMode::Linear && folderIndex.buildFromRefs(refs);
+  } else if (selection) {
+    // Chosen decks of a folder, in list order (shuffled only if the user wants).
+    folderName = tr(STR_ZZ_SELECTION);
+    folderDecks = FlashcardLinearProgress::loadSelection(selectionDir);
+    deckLoaded = mode == ReviewMode::Linear && !folderDecks.empty() && folderIndex.build(folderDecks);
   } else if (wholeFolder) {
     const std::string dir = deckPath.substr(0, deckPath.size() - 1);
     folderName = dir.substr(dir.rfind('/') + 1);
     // Only card positions are kept in RAM, so any folder size fits.
-    deckLoaded = mode == ReviewMode::Linear && folderIndex.build(FlashcardDeck::listDecks(dir));
+    folderDecks = FlashcardDeck::listDecks(dir);
+    deckLoaded = mode == ReviewMode::Linear && folderIndex.build(folderDecks);
     shuffle = true;  // a whole folder is always studied fully shuffled
   } else {
     deckLoaded = deck.loadFromCsv(deckPath.c_str());
@@ -174,8 +182,7 @@ void FlashcardReviewActivity::saveLinearProgress() {
     if (ok && wholeFolder) {
       if (!pendingActions.empty()) return;  // the decks change on exit; saved then
       FlashcardFolderIndex fresh;
-      const std::string dir = deckPath.substr(0, deckPath.size() - 1);
-      ok = fresh.build(FlashcardDeck::listDecks(dir));
+      ok = fresh.build(folderDecks);
       std::vector<size_t> gone = removedLinear;
       std::sort(gone.begin(), gone.end());
       gone.erase(std::unique(gone.begin(), gone.end()), gone.end());

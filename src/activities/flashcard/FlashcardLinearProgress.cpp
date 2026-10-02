@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 namespace FlashcardLinearProgress {
@@ -14,14 +15,26 @@ namespace FlashcardLinearProgress {
 namespace {
 constexpr uint8_t FORMAT_VERSION = 1;
 
-std::string progressPath(const std::string& deckPath) {
-  uint32_t h = 2166136261u;  // FNV-1a of the deck path
-  for (const char c : deckPath) {
+constexpr const char* SELECTION_SUFFIX = "/@selection";
+
+uint32_t fnv1a(const std::string& s) {
+  uint32_t h = 2166136261u;
+  for (const char c : s) {
     h ^= static_cast<uint8_t>(c);
     h *= 16777619u;
   }
+  return h;
+}
+
+std::string progressPath(const std::string& deckPath) {
   char buf[48];
-  snprintf(buf, sizeof(buf), "/.crosspoint/fc_linear_%08lx.json", static_cast<unsigned long>(h));
+  snprintf(buf, sizeof(buf), "/.crosspoint/fc_linear_%08lx.json", static_cast<unsigned long>(fnv1a(deckPath)));
+  return buf;
+}
+
+std::string selectionPath(const std::string& folderDir) {
+  char buf[48];
+  snprintf(buf, sizeof(buf), "/.crosspoint/fc_select_%08lx.json", static_cast<unsigned long>(fnv1a(folderDir)));
   return buf;
 }
 
@@ -100,6 +113,40 @@ void clear(const std::string& deckPath) {
   const std::string tmp = path + ".tmp";
   if (Storage.exists(path.c_str())) Storage.remove(path.c_str());
   if (Storage.exists(tmp.c_str())) Storage.remove(tmp.c_str());
+}
+
+std::string selectionKey(const std::string& folderDir) { return folderDir + SELECTION_SUFFIX; }
+
+bool isSelectionKey(const std::string& key, std::string& folderDirOut) {
+  const size_t n = strlen(SELECTION_SUFFIX);
+  if (key.size() <= n || key.compare(key.size() - n, n, SELECTION_SUFFIX) != 0) return false;
+  folderDirOut = key.substr(0, key.size() - n);
+  return true;
+}
+
+bool saveSelection(const std::string& folderDir, const std::vector<std::string>& deckPaths) {
+  JsonDocument doc;
+  doc["v"] = FORMAT_VERSION;
+  doc["folder"] = folderDir.c_str();
+  JsonArray arr = doc["decks"].to<JsonArray>();
+  for (const auto& p : deckPaths) arr.add(p.c_str());
+  const bool ok = PersistableStoreBase::writeDocToFile(selectionPath(folderDir).c_str(), doc);
+  if (!ok) LOG_ERR("FCLP", "Failed to save the selection for %s", folderDir.c_str());
+  return ok;
+}
+
+std::vector<std::string> loadSelection(const std::string& folderDir) {
+  std::vector<std::string> out;
+  JsonDocument doc;
+  if (!PersistableStoreBase::readDocFromFile(selectionPath(folderDir).c_str(), doc)) return out;
+  if (folderDir != (doc["folder"] | "")) return out;  // hash collision between folders
+  JsonArrayConst arr = doc["decks"].as<JsonArrayConst>();
+  out.reserve(arr.size());
+  for (JsonVariantConst v : arr) {
+    const char* p = v.as<const char*>();
+    if (p && Storage.exists(p)) out.emplace_back(p);
+  }
+  return out;
 }
 
 }  // namespace FlashcardLinearProgress

@@ -1623,6 +1623,39 @@ static void testLinearProgressRecovery(const std::string& root) {
   CHECK_EQ(fs::exists(file) || fs::exists(file + ".tmp"), false);
 }
 
+// A folder's Selection: the chosen decks in order, a key for its pass, and
+// decks deleted since then left out.
+static void testSelectionStore(const std::string& root) {
+  namespace fs = std::filesystem;
+  const std::string fc = root + "/flashcard/L";
+  fs::create_directories(fc);
+  for (const char* n : {"a.csv", "b.csv", "c.csv"}) {
+    std::ofstream(fc + "/" + n, std::ios::binary)
+        << "card_id,front_content,back_content,sr_due,sr_interval,sr_ease\n1,q,a,,,\n2,q2,a2,,,\n";
+  }
+  const std::string dir = "/flashcard/L";
+  CHECK_EQ(FlashcardLinearProgress::loadSelection(dir).empty(), true);
+  CHECK_EQ(FlashcardLinearProgress::saveSelection(dir, {"/flashcard/L/c.csv", "/flashcard/L/a.csv"}), true);
+  auto sel = FlashcardLinearProgress::loadSelection(dir);
+  CHECK_EQ(sel.size(), (size_t)2);
+  CHECK_EQ(sel[0], std::string("/flashcard/L/c.csv"));  // saved order kept
+  const std::string key = FlashcardLinearProgress::selectionKey(dir);
+  std::string back;
+  CHECK_EQ(FlashcardLinearProgress::isSelectionKey(key, back), true);
+  CHECK_EQ(back, dir);
+  CHECK_EQ(FlashcardLinearProgress::isSelectionKey("/flashcard/L/a.csv", back), false);
+  CHECK_EQ(key.back() == '/', false);  // never mistaken for a whole folder
+  FlashcardFolderIndex idx;
+  CHECK_EQ(idx.build(sel), true);
+  CHECK_EQ(idx.size(), (size_t)4);
+  fs::remove(fc + "/c.csv");  // a chosen deck deleted later
+  sel = FlashcardLinearProgress::loadSelection(dir);
+  CHECK_EQ(sel.size(), (size_t)1);
+  CHECK_EQ(sel[0], std::string("/flashcard/L/a.csv"));
+  CHECK_EQ(FlashcardLinearProgress::loadSelection("/flashcard/Other").empty(), true);
+  fs::remove_all(fc);
+}
+
 static void testLinearExclude() {
   FlashcardLinearSession s;
   s.start(6, false, 1);        // queue 0..5 in order
@@ -1753,6 +1786,7 @@ int main(int argc, char** argv) {
   testCardActionsLowMemory(Storage.root);
   testIncompleteReadsKeepOriginal(Storage.root);
   testLinearProgressRecovery(Storage.root);
+  testSelectionStore(Storage.root);
   testLinearExclude();
   testLinearPassSurvivesDeletion(Storage.root);
   testSummariesPath();
