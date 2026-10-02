@@ -1606,6 +1606,15 @@ static void testLinearProgressRecovery(const std::string& root) {
   CHECK_EQ(FlashcardLinearProgress::load(deck, back), true);
   CHECK_EQ(back.state.pass, (uint16_t)2);
   CHECK_EQ(back.state.queue.size(), (size_t)3);
+  CHECK_EQ((int)back.shuffle, -1);  // order not recorded: the caller decides
+  s.shuffle = 0;
+  CHECK_EQ(FlashcardLinearProgress::save(deck, s), true);
+  CHECK_EQ(FlashcardLinearProgress::load(deck, back), true);
+  CHECK_EQ((int)back.shuffle, 0);
+  s.shuffle = 1;
+  CHECK_EQ(FlashcardLinearProgress::save(deck, s), true);
+  CHECK_EQ(FlashcardLinearProgress::load(deck, back), true);
+  CHECK_EQ((int)back.shuffle, 1);
   // Find the checkpoint file and leave only its .tmp, as an interrupted save would.
   std::string file;
   for (const auto& e : fs::directory_iterator(root + "/.crosspoint")) {

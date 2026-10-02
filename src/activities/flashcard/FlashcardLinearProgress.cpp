@@ -69,6 +69,7 @@ bool load(const std::string& deckPath, Saved& out) {
   out.fingerprint = doc["fp"] | static_cast<uint32_t>(0);
   out.state.pass = doc["pass"] | static_cast<uint16_t>(0);
   out.state.position = doc["pos"] | static_cast<uint32_t>(0);
+  out.shuffle = doc["sh"] | static_cast<int8_t>(-1);
   return readArray(doc, "queue", out.state.queue) && readArray(doc, "missed", out.state.missed) &&
          readArray(doc, "unsure", out.state.unsure) && readArray(doc, "known", out.state.known);
 }
@@ -80,6 +81,7 @@ bool save(const std::string& deckPath, const Saved& saved) {
   doc["fp"] = saved.fingerprint;
   doc["pass"] = saved.state.pass;
   doc["pos"] = static_cast<uint32_t>(saved.state.position);
+  if (saved.shuffle >= 0) doc["sh"] = saved.shuffle;
   writeArray(doc, "queue", saved.state.queue);
   writeArray(doc, "missed", saved.state.missed);
   writeArray(doc, "unsure", saved.state.unsure);

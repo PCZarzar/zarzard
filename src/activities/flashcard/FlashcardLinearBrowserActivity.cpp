@@ -175,12 +175,26 @@ FlashcardNextDeck FlashcardLinearBrowserActivity::resolveNextDeck() {
   return offer;
 }
 
-void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool resume) {
+// A whole folder or a Selection asks for the order first; a deck follows the
+// shuffle setting.
+void FlashcardLinearBrowserActivity::startNewPass(const int itemIndex) {
+  selectedIndex = itemIndex;
+  if (items[itemIndex].isWholeFolder || items[itemIndex].isSelection) {
+    choosingOrder = true;
+    orderChoice = 0;
+    requestUpdate();
+    return;
+  }
+  startReview(itemIndex, false, FLASHCARD_STORE.shuffle != 0);
+}
+
+// shuffle only orders a new pass; a resumed pass keeps the order it was saved with.
+void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool resume, const bool shuffle) {
   currentPath = items[itemIndex].path;
   startActivityForResult(
-      std::make_unique<FlashcardReviewActivity>(
-          renderer, mappedInput, currentPath, FlashcardReviewActivity::ReviewMode::Linear, FLASHCARD_STORE.shuffle != 0,
-          resume, FlashcardNextDeckProvider{this, &resolveNextDeckThunk}),
+      std::make_unique<FlashcardReviewActivity>(renderer, mappedInput, currentPath,
+                                                FlashcardReviewActivity::ReviewMode::Linear, shuffle, resume,
+                                                FlashcardNextDeckProvider{this, &resolveNextDeckThunk}),
       [this](const ActivityResult& result) {
         RenderLock lock(*this);  // result handlers run unlocked; reload() rebuilds the list render() reads
         const int current = findDeck(currentPath);
@@ -193,7 +207,7 @@ void FlashcardLinearBrowserActivity::startReview(const int itemIndex, const bool
             if (items[i].isFolder || items[i].isWholeFolder || items[i].isHard || !items[i].loaded) continue;
             selectedIndex = static_cast<int>(i);
             // A chained deck picks up its own saved pass, if any.
-            startReview(selectedIndex, !items[i].savedLabel.empty());
+            startReview(selectedIndex, !items[i].savedLabel.empty(), FLASHCARD_STORE.shuffle != 0);
             return;
           }
         }
@@ -214,6 +228,24 @@ void FlashcardLinearBrowserActivity::loop() {
     loopChooser();
     return;
   }
+  if (choosingOrder) {
+    buttonNavigator.onNext([this] {
+      orderChoice = ButtonNavigator::nextIndex(orderChoice, 2);
+      requestUpdate();
+    });
+    buttonNavigator.onPrevious([this] {
+      orderChoice = ButtonNavigator::previousIndex(orderChoice, 2);
+      requestUpdate();
+    });
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      choosingOrder = false;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      choosingOrder = false;
+      startReview(selectedIndex, false, orderChoice == 0);
+    }
+    return;
+  }
   if (choosingStart) {
     buttonNavigator.onNext([this] {
       startChoice = ButtonNavigator::nextIndex(startChoice, 2);
@@ -228,7 +260,11 @@ void FlashcardLinearBrowserActivity::loop() {
       requestUpdate();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       choosingStart = false;
-      startReview(selectedIndex, startChoice == 0);
+      if (startChoice == 0) {
+        startReview(selectedIndex, true, FLASHCARD_STORE.shuffle != 0);
+      } else {
+        startNewPass(selectedIndex);
+      }
     }
     return;
   }
@@ -284,7 +320,7 @@ void FlashcardLinearBrowserActivity::loop() {
     requestUpdate();
     return;
   }
-  startReview(selectedIndex, false);
+  startNewPass(selectedIndex);
 }
 
 void FlashcardLinearBrowserActivity::render(RenderLock&&) {
@@ -294,6 +330,7 @@ void FlashcardLinearBrowserActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   const char* title = choosingDecks    ? tr(STR_ZZ_CHOOSE_DECKS)
+                      : choosingOrder  ? tr(STR_ZZ_ORDER)
                       : choosingStart  ? items[selectedIndex].name.c_str()
                       : folder.empty() ? tr(STR_FLASHCARD_LINEAR)
                                        : folder.c_str();
@@ -305,6 +342,18 @@ void FlashcardLinearBrowserActivity::render(RenderLock&&) {
 
   if (choosingDecks) {
     renderChooser(top, height);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (choosingOrder) {
+    FlashcardUi::Row choice[2];
+    choice[0].title = tr(STR_ZZ_SHUFFLED);
+    choice[0].subtitle = tr(STR_ZZ_SHUFFLED_HINT);
+    choice[1].title = tr(STR_ZZ_IN_ORDER);
+    choice[1].subtitle = tr(STR_ZZ_IN_ORDER_HINT);
+    FlashcardUi::drawRows(renderer, Rect{0, top, pageWidth, height}, choice, 2, orderChoice);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -435,8 +484,8 @@ void FlashcardLinearBrowserActivity::loopChooser() {
   startSelection();
 }
 
-// Saves the ticked decks (in list order) as the folder's Selection and starts
-// a new pass over them.
+// Saves the ticked decks (in list order) as the folder's Selection, then asks
+// the order of the new pass over them.
 void FlashcardLinearBrowserActivity::startSelection() {
   std::vector<std::string> paths;
   for (size_t k = 0; k < pickable.size(); ++k) {
@@ -450,8 +499,7 @@ void FlashcardLinearBrowserActivity::startSelection() {
   reload();
   for (size_t i = 0; i < items.size(); ++i) {
     if (items[i].isSelection && items[i].path == key) {
-      selectedIndex = static_cast<int>(i);
-      startReview(selectedIndex, false);  // a new choice starts a new pass
+      startNewPass(static_cast<int>(i));  // a new choice starts a new pass
       return;
     }
   }

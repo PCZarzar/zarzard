@@ -36,7 +36,7 @@ class FlashcardReviewActivity final : public Activity {
   // resumeLinear: continue the pass saved for this deck (Linear only); a fresh
   // Linear start discards any saved pass.
   // A deckPath ending in '/' is a whole folder (Linear only): every card of its
-  // decks in one pass, always shuffled, with its own saved progress.
+  // decks in one pass, in list order or shuffled, with its own saved progress.
   // FLASHCARD_HARD_KEY is the difficult cards of every deck (Linear only).
   FlashcardReviewActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& deckPath,
                           ReviewMode mode, bool shuffle, bool resumeLinear, FlashcardNextDeckProvider nextDeck);

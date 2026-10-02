@@ -75,7 +75,7 @@ void FlashcardReviewActivity::onEnter() {
     }
     deckLoaded = mode == ReviewMode::Linear && folderIndex.buildFromRefs(refs);
   } else if (selection) {
-    // Chosen decks of a folder, in list order (shuffled only if the user wants).
+    // Chosen decks of a folder, in list order or shuffled, as the user picked.
     folderName = tr(STR_ZZ_SELECTION);
     folderDecks = FlashcardLinearProgress::loadSelection(selectionDir);
     deckLoaded = mode == ReviewMode::Linear && !folderDecks.empty() && folderIndex.build(folderDecks);
@@ -85,7 +85,6 @@ void FlashcardReviewActivity::onEnter() {
     // Only card positions are kept in RAM, so any folder size fits.
     folderDecks = FlashcardDeck::listDecks(dir);
     deckLoaded = mode == ReviewMode::Linear && folderIndex.build(folderDecks);
-    shuffle = true;  // a whole folder is always studied fully shuffled
   } else {
     deckLoaded = deck.loadFromCsv(deckPath.c_str());
     // Linear reviews the cards that are not suspended, by position.
@@ -99,8 +98,17 @@ void FlashcardReviewActivity::onEnter() {
     bool restored = false;
     if (deckLoaded && resumeLinear) {
       FlashcardLinearProgress::Saved saved;
-      if (FlashcardLinearProgress::load(deckPath, saved) && saved.fingerprint == linearFingerprint()) {
-        restored = linear.restore(saved.state, linearDeckSize(), shuffle);
+      if (FlashcardLinearProgress::load(deckPath, saved)) {
+        // A saved pass keeps its order; whole-folder passes saved before the
+        // order was recorded were always shuffled.
+        if (saved.shuffle >= 0) {
+          shuffle = saved.shuffle != 0;
+        } else if (wholeFolder && !selection && deckPath != FLASHCARD_HARD_KEY) {
+          shuffle = true;
+        }
+        if (saved.fingerprint == linearFingerprint()) {
+          restored = linear.restore(saved.state, linearDeckSize(), shuffle);
+        }
       }
       if (!restored) LOG_INF("FCRV", "Saved linear pass unusable (deck changed?), starting over: %s", deckPath.c_str());
     }
@@ -174,6 +182,7 @@ void FlashcardReviewActivity::saveLinearProgress() {
   if (!deckLoaded) return;
   FlashcardLinearProgress::Saved saved;
   saved.state = linear.exportState();
+  saved.shuffle = linear.shuffled() ? 1 : 0;
   saved.fingerprint = linearFingerprint();
   if (structureChanged) {
     // Cards left the deck: save the pass renumbered without them, so it (and

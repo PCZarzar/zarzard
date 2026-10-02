@@ -145,6 +145,7 @@ class FlashcardLinearSession {
     }
   }
 
+  bool shuffled() const { return shuffle; }
   uint16_t pass() const { return passNumber; }
   size_t passSize() const { return queue.size(); }
   // 1-based index of the card on screen (== passSize() once done).

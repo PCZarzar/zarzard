@@ -12,6 +12,7 @@ namespace FlashcardLinearProgress {
 
 struct Saved {
   uint32_t fingerprint = 0;  // FlashcardDeck::contentFingerprint() when saved
+  int8_t shuffle = -1;       // order of the pass: 1 shuffled, 0 in order, -1 not saved (older files)
   FlashcardLinearSession::State state;
 };
 

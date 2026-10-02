@@ -8,14 +8,15 @@
 
 // Linear review: the difficult cards of every deck, then folders of /flashcard
 // (one level) and their decks. Inside a folder the first row studies the whole
-// folder as one fully shuffled pass; "Choose decks…" picks some of its decks to
-// study as one pass in list order (the Selection, one per folder).
+// folder as one pass; "Choose decks…" picks some of its decks to study as one
+// pass (the Selection, one per folder). Both ask for the order when a new pass
+// starts: shuffled, or deck by deck in file order.
 // Decks (and whole folders) with a saved pass offer Continue / Restart.
 // "Next deck" at the end of a deck's pass moves to the next deck of the folder.
 class FlashcardLinearBrowserActivity final : public Activity {
   struct Item {
     bool isFolder = false;
-    bool isWholeFolder = false;  // every deck of the current folder, shuffled
+    bool isWholeFolder = false;  // every deck of the current folder
     bool isHard = false;         // the difficult cards of every deck
     bool isSelection = false;    // the folder's saved Selection of decks
     bool isChooser = false;      // "Choose decks…"
@@ -40,6 +41,9 @@ class FlashcardLinearBrowserActivity final : public Activity {
   std::vector<int> pickable;  // indices into items
   std::vector<bool> picked;
   int pickSelected = 0;
+  // Order of a new whole-folder or Selection pass.
+  bool choosingOrder = false;
+  int orderChoice = 0;  // 0 = shuffled, 1 = in order
 
   void reload();
   std::string folderDir() const;
@@ -48,7 +52,8 @@ class FlashcardLinearBrowserActivity final : public Activity {
   void renderChooser(int top, int height);
   void startSelection();
   int findDeck(const std::string& path) const;
-  void startReview(int itemIndex, bool resume);
+  void startNewPass(int itemIndex);
+  void startReview(int itemIndex, bool resume, bool shuffle);
   FlashcardNextDeck resolveNextDeck();
   static FlashcardNextDeck resolveNextDeckThunk(void* self);
 
