@@ -25,6 +25,15 @@ void drawChapterGrid(const GfxRenderer& r, const Rect& area, int chapters, int s
 void drawPage(const GfxRenderer& r, const std::string& text, const std::vector<BibleLayout::Line>& lines, int first,
               int last, int top, const BibleLayout::Geometry& g, int verseGap);
 
+struct FontChoice {
+  int fontId;
+  const char* label;  // "Normal · 14"
+};
+
+// Reading text sizes, each row showing `sample` in its own font.
+void drawFontChoices(const GfxRenderer& r, const Rect& area, const FontChoice* choices, int count, int selected,
+                     const char* sample);
+
 // One centred line in small text (footers and tips).
 void drawNote(const GfxRenderer& r, int y, const char* text);
 

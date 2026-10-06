@@ -10,7 +10,7 @@ class FileBrowserActivity final : public UiListActivity {
  public:
   // Books = standard reader browser; PickFirmware = filter to .bin only and return path via ActivityResult;
   // Summaries = reader browser confined to SUMMARIES_DIR (its root is the top level).
-  enum class Mode { Books, PickFirmware, Summaries };
+  enum class Mode { Books, PickFirmware, Summaries, Library };  // Library: only BOOKS_DIR
 
  private:
   // Deletion

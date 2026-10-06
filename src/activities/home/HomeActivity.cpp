@@ -446,6 +446,7 @@ void HomeActivity::zzBuildItems() {
   zzItems.reserve(8);
   zzItems.push_back(HomeMenuItem::FLASHCARDS);
   if (!recentBooks.empty()) zzItems.push_back(HomeMenuItem::NONE);  // continue reading
+  zzItems.push_back(HomeMenuItem::BOOKS);
   zzItems.push_back(HomeMenuItem::SUMMARIES);
   zzItems.push_back(HomeMenuItem::FILE_BROWSER);
   zzItems.push_back(HomeMenuItem::RECENTS);
@@ -482,6 +483,9 @@ void HomeActivity::zzActivate(const HomeMenuItem item) {
       break;
     case HomeMenuItem::FLASHCARDS:
       onFlashcardsOpen();
+      break;
+    case HomeMenuItem::BOOKS:
+      activityManager.goToLibrary();
       break;
     case HomeMenuItem::SUMMARIES:
       onSummariesOpen();
@@ -559,29 +563,33 @@ void HomeActivity::zzRender() {
   for (const HomeMenuItem item : zzItems) {
     ZarzardHomeTile tile{nullptr, nullptr, isSelected(item)};
     switch (item) {
+      case HomeMenuItem::BOOKS:
+        tile.icon = &ZarzardIcons::Books48;
+        tile.label = tr(STR_ZZ_HOME_BOOKS);
+        break;
       case HomeMenuItem::SUMMARIES:
-        tile.icon = &ZarzardIcons::Notebook40;
+        tile.icon = &ZarzardIcons::Notebook48;
         tile.label = tr(STR_SUMMARIES);
         break;
       case HomeMenuItem::FILE_BROWSER:
-        tile.icon = &ZarzardIcons::FolderOpen40;
+        tile.icon = &ZarzardIcons::FolderOpen48;
         tile.label = tr(STR_BROWSE_FILES);
         break;
       case HomeMenuItem::RECENTS:
-        tile.icon = &ZarzardIcons::ClockCounterClockwise40;
-        tile.label = tr(STR_MENU_RECENT_BOOKS);
+        tile.icon = &ZarzardIcons::ClockCounterClockwise48;
+        tile.label = tr(STR_ZZ_HOME_RECENTS);
         break;
       case HomeMenuItem::FILE_TRANSFER:
-        tile.icon = &ZarzardIcons::ArrowsLeftRight40;
-        tile.label = tr(STR_FILE_TRANSFER);
+        tile.icon = &ZarzardIcons::ArrowsLeftRight48;
+        tile.label = tr(STR_ZZ_HOME_TRANSFER);
         break;
       case HomeMenuItem::OPDS_BROWSER:
-        tile.icon = &ZarzardIcons::Rss40;
+        tile.icon = &ZarzardIcons::Rss48;
         tile.label = tr(STR_OPDS_BROWSER);
         break;
       case HomeMenuItem::SETTINGS_MENU:
-        tile.icon = &ZarzardIcons::GearSix40;
-        tile.label = tr(STR_SETTINGS_TITLE);
+        tile.icon = &ZarzardIcons::GearSix48;
+        tile.label = tr(STR_ZZ_HOME_SETTINGS);
         break;
       default:
         continue;  // the study and continue cards are drawn apart

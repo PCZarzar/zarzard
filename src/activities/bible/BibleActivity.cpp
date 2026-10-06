@@ -18,7 +18,35 @@ constexpr int OLD_TESTAMENT_BOOKS = 39;
 constexpr int FULL_CANON_BOOKS = 66;  // testament headings only for the 66-book canon
 constexpr int VERSE_GAP = 4;
 constexpr int NUMBER_GAP = 6;
-constexpr int TEXT_INSET = 4;  // reading text sits a little inside the list margin
+constexpr int TEXT_MARGIN = 20;         // left and right of the reading text
+constexpr unsigned long HOLD_MS = 700;  // Confirm held this long while reading: text size
+
+struct FontSize {
+  int textFont;
+  int numberFont;  // verse numbers, bold where the family has it
+};
+constexpr FontSize FONT_SIZES[] = {{NOTOSERIF_12_FONT_ID, SMALL_FONT_ID},
+                                   {NOTOSERIF_14_FONT_ID, SMALL_FONT_ID},
+                                   {NOTOSERIF_16_FONT_ID, UI_10_FONT_ID},
+                                   {NOTOSERIF_18_FONT_ID, UI_10_FONT_ID},
+                                   {NOTOSERIF_20_FONT_ID, UI_12_FONT_ID}};
+constexpr int FONT_COUNT = sizeof(FONT_SIZES) / sizeof(FONT_SIZES[0]);
+constexpr int DEFAULT_FONT = 1;
+
+const char* fontLabel(const int i) {
+  switch (i) {
+    case 0:
+      return tr(STR_ZZ_BIBLE_FONT_SMALL);
+    case 1:
+      return tr(STR_ZZ_BIBLE_FONT_NORMAL);
+    case 2:
+      return tr(STR_ZZ_BIBLE_FONT_MEDIUM);
+    case 3:
+      return tr(STR_ZZ_BIBLE_FONT_LARGE);
+    default:
+      return tr(STR_ZZ_BIBLE_FONT_XLARGE);
+  }
+}
 }  // namespace
 
 using Button = MappedInputManager::Button;
@@ -26,6 +54,8 @@ using Button = MappedInputManager::Button;
 void BibleActivity::onEnter() {
   Activity::onEnter();
   waitRelease = true;
+  const int saved = Bible::loadFontIndex();
+  fontIndex = saved >= 0 && saved < FONT_COUNT ? saved : DEFAULT_FONT;
   loadVersions();
   requestUpdate();
 }
@@ -71,12 +101,11 @@ bool BibleActivity::openVersion(const int index) {
 }
 
 BibleLayout::Geometry BibleActivity::geometry() const {
-  const auto& m = UITheme::getInstance().getMetrics();
   BibleLayout::Geometry g;
-  g.left = m.contentSidePadding + TEXT_INSET;
-  g.width = renderer.getScreenWidth() - 2 * g.left;
-  g.textFont = NOTOSERIF_14_FONT_ID;
-  g.numberFont = SMALL_FONT_ID;
+  g.left = TEXT_MARGIN;
+  g.width = renderer.getScreenWidth() - 2 * TEXT_MARGIN;
+  g.textFont = FONT_SIZES[fontIndex].textFont;
+  g.numberFont = FONT_SIZES[fontIndex].numberFont;
   g.numberGap = NUMBER_GAP;
   return g;
 }
@@ -101,7 +130,8 @@ void BibleActivity::openChapter(const int bookIndex, const int chapterIndex, con
   pages.clear();
   if (!readError) {
     lines = BibleLayout::layout(renderer, text, geometry());
-    pages = BibleLayout::paginate(lines, renderer.getLineHeight(NOTOSERIF_14_FONT_ID), VERSE_GAP, pageHeight());
+    pages =
+        BibleLayout::paginate(lines, renderer.getLineHeight(FONT_SIZES[fontIndex].textFont), VERSE_GAP, pageHeight());
   } else {
     pages.push_back(0);
   }
@@ -224,12 +254,55 @@ void BibleActivity::loop() {
     case Screen::Reading:
       loopReading();
       return;
+    case Screen::FontSize:
+      loopFontSize();
+      return;
   }
+}
+
+void BibleActivity::loopFontSize() {
+  buttonNavigator.onNext([this] {
+    fontSel = ButtonNavigator::nextIndex(fontSel, FONT_COUNT);
+    requestUpdate();
+  });
+  buttonNavigator.onPrevious([this] {
+    fontSel = ButtonNavigator::previousIndex(fontSel, FONT_COUNT);
+    requestUpdate();
+  });
+  if (mappedInput.wasReleased(Button::Back)) {
+    screen = Screen::Reading;
+    requestUpdate();
+  } else if (mappedInput.wasReleased(Button::Confirm)) {
+    applyFontSize(fontSel);
+    requestUpdate();
+  }
+}
+
+// Lays the open chapter out again in the new size, keeping the verse at the top.
+void BibleActivity::applyFontSize(const int index) {
+  RenderLock lock(*this);  // the lines and pages render() reads are rebuilt
+  if (index != fontIndex && !pages.empty()) {
+    const int verse = BibleLayout::verseAtLine(lines, pages[page]);
+    fontIndex = index;
+    Bible::saveFontIndex(fontIndex);
+    pagesUntilFullRefresh = 0;  // a clean redraw for the new size
+    openChapter(book, chapter, verse);
+  } else if (index != fontIndex) {
+    fontIndex = index;
+    Bible::saveFontIndex(fontIndex);
+  }
+  screen = Screen::Reading;
 }
 
 // Release turns the page (into the next/previous chapter at its ends); holding
 // moves a whole chapter per repeat.
 void BibleActivity::loopReading() {
+  if (mappedInput.wasLongPressed(Button::Confirm, HOLD_MS)) {
+    fontSel = fontIndex;
+    screen = Screen::FontSize;
+    requestUpdate();
+    return;
+  }
   if (mappedInput.wasReleased(Button::Back)) {
     savePosition();
     chapterSel = chapter;
@@ -288,6 +361,9 @@ void BibleActivity::render(RenderLock&&) {
     case Screen::Reading:
       renderReading();
       return;  // displays with the reader's refresh cycle
+    case Screen::FontSize:
+      renderFontSize();
+      break;
   }
   renderer.displayBuffer();
 }
@@ -403,4 +479,21 @@ void BibleActivity::renderReading() {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_ZZ_BIBLE_BOOKS), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+}
+
+void BibleActivity::renderFontSize() {
+  const auto& m = UITheme::getInstance().getMetrics();
+  const int w = renderer.getScreenWidth();
+  GUI.drawHeader(renderer, Rect{0, m.topPadding, w, m.headerHeight}, tr(STR_ZZ_BIBLE_FONT_SIZE));
+  BibleView::FontChoice choices[FONT_COUNT];
+  for (int i = 0; i < FONT_COUNT; ++i) choices[i] = {FONT_SIZES[i].textFont, fontLabel(i)};
+  // The sample is the chapter's first verse, in the version being read.
+  std::string sample = text.substr(0, text.find('\n'));
+  if (sample.empty()) sample = tr(STR_ZZ_BIBLE);
+  const int top = m.topPadding + m.headerHeight + m.verticalSpacing / 2;
+  const int height = renderer.getScreenHeight() - top - m.buttonHintsHeight - m.verticalSpacing;
+  BibleView::drawFontChoices(renderer, Rect{m.contentSidePadding, top, w - 2 * m.contentSidePadding, height}, choices,
+                             FONT_COUNT, fontSel, sample.c_str());
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }

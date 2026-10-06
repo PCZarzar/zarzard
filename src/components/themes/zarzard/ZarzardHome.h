@@ -31,7 +31,7 @@ struct ZarzardHomeView {
   const char* continueLabel = "";
   std::string bookTitle;
   std::string bookAuthor;
-  // The other entries, three per row.
+  // The other entries, two per row.
   std::vector<ZarzardHomeTile> tiles;
   int batteryPercent = 0;
   bool showBatteryPercent = true;

@@ -56,4 +56,8 @@ bool loadPosition(const std::string& label, Position& out);
 std::string loadLastVersion();
 bool savePosition(const std::string& label, const Position& pos);
 
+// Reading text size: an index into BibleActivity's size list (-1 when never chosen).
+int loadFontIndex();
+bool saveFontIndex(int index);
+
 }  // namespace Bible

@@ -24,6 +24,7 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/BmpViewerActivity.h"
+#include "util/BooksPath.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/SummariesPath.h"
@@ -246,9 +247,16 @@ void ActivityManager::goToUsbDrive() {
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
-  // Leaving a summary returns to the Summaries browser, never the book library.
-  const auto mode = isSummaryPath(path) ? FileBrowserActivity::Mode::Summaries : FileBrowserActivity::Mode::Books;
+  // Leaving a summary or a /books title returns to its own browser.
+  const auto mode = isSummaryPath(path) ? FileBrowserActivity::Mode::Summaries
+                    : isBooksPath(path) ? FileBrowserActivity::Mode::Library
+                                        : FileBrowserActivity::Mode::Books;
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path), mode));
+}
+
+void ActivityManager::goToLibrary() {
+  replaceActivity(
+      std::make_unique<FileBrowserActivity>(renderer, mappedInput, BOOKS_DIR, FileBrowserActivity::Mode::Library));
 }
 
 void ActivityManager::goToSummaries() {

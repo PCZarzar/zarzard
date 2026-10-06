@@ -4,7 +4,7 @@
 #include <string>
 
 // Summaries live in their own folder, browsed from the Summaries Home entry
-// and kept out of the book library (hidden in Browse files, never in Recents).
+// and kept out of the book library (hidden in Browse files).
 constexpr char SUMMARIES_DIR[] = "/summaries";
 
 // True for files inside SUMMARIES_DIR. Case-insensitive, like the FAT card.

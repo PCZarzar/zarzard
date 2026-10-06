@@ -15,6 +15,7 @@
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/BooksPath.h"
 #include "util/SummariesPath.h"
 
 namespace fui = freeink::ui;
@@ -29,12 +30,17 @@ std::string getFileExtension(const std::string& filename);
 
 FileBrowserActivity::FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                          std::string initialPath, const Mode mode)
-    : UiListActivity(mode == Mode::Summaries ? "SummariesBrowser" : "FileBrowser", renderer, mappedInput,
+    : UiListActivity(mode == Mode::Summaries ? "SummariesBrowser"
+                     : mode == Mode::Library ? "LibraryBrowser"
+                                             : "FileBrowser",
+                     renderer, mappedInput,
                      /*wantsTouchLongPress=*/true),
       mode(mode),
       basepath(initialPath.empty() ? rootPath() : std::move(initialPath)) {}
 
-const char* FileBrowserActivity::rootPath() const { return mode == Mode::Summaries ? SUMMARIES_DIR : "/"; }
+const char* FileBrowserActivity::rootPath() const {
+  return mode == Mode::Summaries ? SUMMARIES_DIR : mode == Mode::Library ? BOOKS_DIR : "/";
+}
 
 void FileBrowserActivity::loadFiles() {
   files.clear();
@@ -138,6 +144,9 @@ void FileBrowserActivity::onEnter() {
   if (mode == Mode::Summaries) {
     Storage.mkdir(SUMMARIES_DIR);  // first use: give the user a folder to fill
     if (!isSummaryPath(basepath)) basepath = SUMMARIES_DIR;
+  } else if (mode == Mode::Library) {
+    Storage.mkdir(BOOKS_DIR);  // first use: give the user a folder to fill
+    if (!isBooksPath(basepath)) basepath = BOOKS_DIR;
   }
   auto root = Storage.open(basepath.c_str());
   if (!root) {
@@ -400,7 +409,9 @@ bool FileBrowserActivity::handleButtons() {
         setResult(std::move(res));
         finish();
       } else {
-        onGoHome(mode == Mode::Summaries ? HomeMenuItem::SUMMARIES : HomeMenuItem::NONE);
+        onGoHome(mode == Mode::Summaries ? HomeMenuItem::SUMMARIES
+                 : mode == Mode::Library ? HomeMenuItem::BOOKS
+                                         : HomeMenuItem::NONE);
       }
     }
     return true;
@@ -511,9 +522,10 @@ void FileBrowserActivity::drawChrome() {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   std::string folderName = (mode == Mode::PickFirmware) ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
-                           : (basepath == rootPath())
-                               ? std::string(mode == Mode::Summaries ? tr(STR_SUMMARIES) : tr(STR_SD_CARD))
-                               : basepath.substr(basepath.rfind('/') + 1);
+                           : (basepath == rootPath())   ? std::string(mode == Mode::Summaries ? tr(STR_SUMMARIES)
+                                                                      : mode == Mode::Library ? tr(STR_ZZ_HOME_BOOKS)
+                                                                                              : tr(STR_SD_CARD))
+                                                        : basepath.substr(basepath.rfind('/') + 1);
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());

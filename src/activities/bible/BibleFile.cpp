@@ -170,12 +170,32 @@ std::string loadLastVersion() {
   return doc["last"] | "";
 }
 
-bool savePosition(const std::string& label, const Position& pos) {
-  JsonDocument doc;
+namespace {
+// Rewrites bible.json through a .tmp: a power cut keeps the last good file
+// (readPositions recovers a lone .tmp).
+bool writePositions(const JsonDocument& doc) {
+  if (doc.overflowed()) return false;
+  const std::string tmp = std::string(POSITION_PATH) + ".tmp";
+  bool ok = PersistableStoreBase::writeDocToFile(tmp.c_str(), doc);
+  if (ok && !Storage.rename(tmp.c_str(), POSITION_PATH)) {
+    Storage.remove(POSITION_PATH);
+    ok = Storage.rename(tmp.c_str(), POSITION_PATH);
+  }
+  if (!ok) LOG_ERR(TAG, "Failed to save %s", POSITION_PATH);
+  return ok;
+}
+
+void openPositions(JsonDocument& doc) {
   if (!readPositions(doc)) {
     doc.clear();
     doc["v"] = FORMAT_VERSION;
   }
+}
+}  // namespace
+
+bool savePosition(const std::string& label, const Position& pos) {
+  JsonDocument doc;
+  openPositions(doc);
   doc["last"] = label.c_str();
   JsonArray a = doc["pos"][label].to<JsonArray>();
   a.add(pos.book);
@@ -183,17 +203,20 @@ bool savePosition(const std::string& label, const Position& pos) {
   a.add(pos.verse);
   a.add(pos.line);
   a.add(pos.where.c_str());
-  if (doc.overflowed()) return false;
-  // Written to a .tmp, then renamed over the old file: a power cut keeps the
-  // last good position (readPositions recovers a lone .tmp).
-  const std::string tmp = std::string(POSITION_PATH) + ".tmp";
-  bool ok = PersistableStoreBase::writeDocToFile(tmp.c_str(), doc);
-  if (ok && !Storage.rename(tmp.c_str(), POSITION_PATH)) {
-    Storage.remove(POSITION_PATH);
-    ok = Storage.rename(tmp.c_str(), POSITION_PATH);
-  }
-  if (!ok) LOG_ERR(TAG, "Failed to save the reading position");
-  return ok;
+  return writePositions(doc);
+}
+
+int loadFontIndex() {
+  JsonDocument doc;
+  if (!readPositions(doc)) return -1;
+  return doc["font"] | -1;
+}
+
+bool saveFontIndex(const int index) {
+  JsonDocument doc;
+  openPositions(doc);
+  doc["font"] = index;
+  return writePositions(doc);
 }
 
 }  // namespace Bible

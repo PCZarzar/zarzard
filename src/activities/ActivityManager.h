@@ -25,7 +25,8 @@ enum class HomeMenuItem {
   FILE_TRANSFER,
   SETTINGS_MENU,
   FLASHCARDS,
-  SUMMARIES
+  SUMMARIES,
+  BOOKS
 };
 
 /**
@@ -95,6 +96,7 @@ class ActivityManager {
   void goToSettings();
   void goToFileBrowser(std::string path = {});
   void goToSummaries();
+  void goToLibrary();
   void goToRecentBooks();
   void goToBrowser();
   void goToReader(std::string path, bool allowFastInitialRefresh = false);

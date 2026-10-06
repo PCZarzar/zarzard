@@ -76,6 +76,30 @@ void drawPage(const GfxRenderer& r, const std::string& text, const std::vector<B
   }
 }
 
+void drawFontChoices(const GfxRenderer& r, const Rect& area, const FontChoice* choices, const int count,
+                     const int selected, const char* sample) {
+  constexpr int ROW_PAD = 14;
+  constexpr int RADIUS = 12;
+  int y = area.y;
+  for (int i = 0; i < count; ++i) {
+    const int lineH = r.getLineHeight(choices[i].fontId);
+    const int labelH = r.getLineHeight(SMALL_FONT_ID);
+    const int rowH = ROW_PAD + labelH + lineH + ROW_PAD;
+    if (i == selected) {
+      r.drawRoundedRect(area.x, y, area.width, rowH, 3, RADIUS, true);
+    }
+    r.drawText(SMALL_FONT_ID, area.x + ROW_PAD, y + ROW_PAD, choices[i].label);
+    // The sample is cut to the row width so every size shows the same words.
+    std::string text = sample;
+    while (!text.empty() && r.getTextWidth(choices[i].fontId, text.c_str()) > area.width - 2 * ROW_PAD) {
+      const size_t cut = text.rfind(' ');
+      text.resize(cut == std::string::npos ? 0 : cut);
+    }
+    r.drawText(choices[i].fontId, area.x + ROW_PAD, y + ROW_PAD + labelH, text.c_str());
+    y += rowH + 8;
+  }
+}
+
 void drawNote(const GfxRenderer& r, const int y, const char* text) {
   const int w = r.getTextWidth(SMALL_FONT_ID, text);
   r.drawText(SMALL_FONT_ID, (r.getScreenWidth() - w) / 2, y, text);

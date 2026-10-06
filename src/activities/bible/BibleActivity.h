@@ -10,9 +10,10 @@
 // Hidden Bible reader (opened by holding side Up + front Right on Home):
 // versions -> books -> chapter grid -> reading. In the lists a press moves one
 // item and holding skips ten; while reading a press turns the page and holding
-// moves to the next/previous chapter. Back goes up one level.
+// moves to the next/previous chapter; holding Confirm picks the text size.
+// Back goes up one level.
 class BibleActivity final : public Activity {
-  enum class Screen : uint8_t { Versions, Books, Chapters, Reading };
+  enum class Screen : uint8_t { Versions, Books, Chapters, Reading, FontSize };
 
   ButtonNavigator buttonNavigator;
   Screen screen = Screen::Versions;
@@ -37,6 +38,8 @@ class BibleActivity final : public Activity {
   bool readError = false;
   bool positionDirty = false;
   int pagesUntilFullRefresh = 0;
+  int fontIndex = 1;  // into FONT_SIZES; Normal
+  int fontSel = 1;    // highlighted row on the FontSize screen
 
   void loadVersions();
   bool openVersion(int index);
@@ -49,11 +52,14 @@ class BibleActivity final : public Activity {
   int pageHeight() const;
   void stepList(int& index, int count);
   void loopReading();
+  void loopFontSize();
+  void applyFontSize(int index);
 
   void renderVersions();
   void renderBooks();
   void renderChapters();
   void renderReading();
+  void renderFontSize();
 
  public:
   explicit BibleActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
