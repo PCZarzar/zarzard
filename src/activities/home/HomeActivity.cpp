@@ -20,6 +20,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/bible/BibleActivity.h"
 #include "activities/flashcard/FlashcardDeckOptions.h"
 #include "activities/flashcard/FlashcardHistory.h"
 #include "activities/flashcard/FlashcardHomeActivity.h"
@@ -193,7 +194,41 @@ void HomeActivity::freeCoverBuffer() {
   coverBufferStored = false;
 }
 
+// Holding side Up + front Right opens the Bible. Both also move the selection,
+// so it goes back to where it was before the first of them was pressed.
+bool HomeActivity::bibleChord() {
+  constexpr unsigned long BIBLE_HOLD_MS = 5000;
+  const bool up = mappedInput.isPressed(MappedInputManager::Button::Up);
+  const bool right = mappedInput.isPressed(MappedInputManager::Button::Right);
+  if (!up && !right) {
+    bibleChordStart = 0;
+    bibleChordSeen = false;
+    bibleIdleSelection = selectorIndex;
+    return false;
+  }
+  if (!up || !right) {
+    // After a chord let go too early, the button still down does not navigate.
+    bibleChordStart = 0;
+    return bibleChordSeen;
+  }
+  if (bibleChordStart == 0) {
+    bibleChordStart = std::max(1UL, millis());
+    bibleChordSeen = true;
+    if (selectorIndex != bibleIdleSelection) {
+      selectorIndex = bibleIdleSelection;
+      requestUpdate();
+    }
+    return true;
+  }
+  if (millis() - bibleChordStart >= BIBLE_HOLD_MS) {
+    bibleChordStart = 0;
+    activityManager.replaceActivity(std::make_unique<BibleActivity>(renderer, mappedInput));
+  }
+  return true;
+}
+
 void HomeActivity::loop() {
+  if (bibleChord()) return;
   if (zarzard) {
     zzLoop();
     return;

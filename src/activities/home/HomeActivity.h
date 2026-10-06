@@ -45,6 +45,12 @@ class HomeActivity final : public Activity {
   void zzLoop();
   void zzRender();
 
+  // Hidden Bible: side Up + front Right held together for BIBLE_HOLD_MS.
+  unsigned long bibleChordStart = 0;  // 0 = the two are not both held
+  bool bibleChordSeen = false;        // both were held since the last full release
+  int bibleIdleSelection = 0;         // selection before either button moved it
+  bool bibleChord();
+
   // Convert HomeMenuItem to menu index (used in onEnter)
   static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl) {
     int i = 0;

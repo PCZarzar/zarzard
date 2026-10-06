@@ -8,10 +8,10 @@
 class GfxRenderer {
  public:
   void insertFont(int id, const EpdFontFamily& f) { fonts.emplace(id, f); }
-  int getTextWidth(int fontId, const char* text) const {
+  int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const {
     if (text == nullptr || *text == '\0') return 0;
     int w = 0, h = 0;
-    fonts.at(fontId).getTextDimensions(text, &w, &h);
+    fonts.at(fontId).getTextDimensions(text, &w, &h, style);
     return w;
   }
   int getLineHeight(int fontId) const { return fonts.at(fontId).getData()->advanceY; }
