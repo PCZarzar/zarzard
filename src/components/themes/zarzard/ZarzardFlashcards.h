@@ -19,13 +19,19 @@ struct ActionButton {
   const char* label = "";
   const char* sub = "";  // second line (next interval), may be empty
 };
-constexpr int ACTION_BUTTON_HEIGHT = 86;
-// Tall outlined buttons with an icon, bottom-aligned over the front keys.
+constexpr int ACTION_BUTTON_HEIGHT = 48;
+// Low outlined buttons (icon and label on one row, the interval below),
+// bottom-aligned over the front keys. Returns the buttons' top y.
+int actionButtonsTop(const GfxRenderer& renderer);
 void drawActionButtons(const GfxRenderer& renderer, const ActionButton buttons[4]);
 
 // Deck name left, progress text right, a thin progress bar below. Returns the
 // first free y under it.
 int drawCardHeader(const GfxRenderer& renderer, const char* title, const char* right, int percent);
+
+// The card frame runs close to the screen edges so the text gets the room.
+constexpr int CARD_FRAME_GUTTER = 10;
+constexpr int CARD_TEXT_INSET = 14;  // text inset inside the frame
 void drawCardFrame(const GfxRenderer& renderer, int top, int bottom);
 
 struct FlashcardHubView {

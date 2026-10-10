@@ -13,8 +13,8 @@ namespace FlashcardLayout {
 std::vector<std::string> wrapText(const GfxRenderer& r, int fontId, const std::string& text, int maxWidth,
                                   bool* wordCut = nullptr);
 
-// 5.2: largest NotoSerif 24..14 that fits availH in <= 4 lines without
-// splitting a word; otherwise 14 with codepoint splitting.
+// 5.2: largest NotoSerif 24..14 that fits availH without splitting a word
+// (24-20 only up to 4 lines); otherwise 14 with codepoint splitting.
 int pickMainFont(const GfxRenderer& r, const std::string& text, int maxWidth, int availH,
                  std::vector<std::string>& outLines);
 

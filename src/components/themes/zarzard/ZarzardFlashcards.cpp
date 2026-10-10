@@ -18,24 +18,32 @@ void frontButtonCenters(const GfxRenderer& renderer, int out[4]) {
   std::copy(src, src + 4, out);
 }
 
+int actionButtonsTop(const GfxRenderer& renderer) { return renderer.getScreenHeight() - ACTION_BUTTON_HEIGHT - 6; }
+
 void drawActionButtons(const GfxRenderer& renderer, const ActionButton buttons[4]) {
   int centers[4];
   frontButtonCenters(renderer, centers);
   constexpr int W = 84;
-  const int top = renderer.getScreenHeight() - ACTION_BUTTON_HEIGHT - 8;
+  constexpr int ICON_GAP = 4;
+  const int top = actionButtonsTop(renderer);
   for (int i = 0; i < 4; ++i) {
     const ActionButton& b = buttons[i];
     if (!b.icon) continue;
     const int x = centers[i] - W / 2;
-    renderer.fillRoundedRect(x, top, W, ACTION_BUTTON_HEIGHT, 18, Color::White);
-    renderer.drawRoundedRect(x, top, W, ACTION_BUTTON_HEIGHT, 2, 18, true);
-    const bool twoLines = b.sub && b.sub[0];
-    drawIcon(renderer, *b.icon, centers[i] - b.icon->size / 2, top + (twoLines ? 8 : 14));
-    const int labelY = top + (twoLines ? 42 : 52);
-    renderer.drawText(SMALL_FONT_ID, centers[i] - renderer.getTextWidth(SMALL_FONT_ID, b.label) / 2, labelY, b.label);
-    if (twoLines) {
-      renderer.drawText(SMALL_FONT_ID, centers[i] - renderer.getTextWidth(SMALL_FONT_ID, b.sub) / 2, labelY + 20,
-                        b.sub);
+    renderer.fillRoundedRect(x, top, W, ACTION_BUTTON_HEIGHT, 12, Color::White);
+    renderer.drawRoundedRect(x, top, W, ACTION_BUTTON_HEIGHT, 2, 12, true);
+    const int lineH = renderer.getLineHeight(SMALL_FONT_ID);
+    const int labelW = renderer.getTextWidth(SMALL_FONT_ID, b.label);
+    if (b.sub && b.sub[0]) {
+      // Icon and label side by side, the interval below.
+      const int groupX = centers[i] - (b.icon->size + ICON_GAP + labelW) / 2;
+      drawIcon(renderer, *b.icon, groupX, top + 4);
+      renderer.drawText(SMALL_FONT_ID, groupX + b.icon->size + ICON_GAP, top + 4 + (b.icon->size - lineH) / 2, b.label);
+      renderer.drawText(SMALL_FONT_ID, centers[i] - renderer.getTextWidth(SMALL_FONT_ID, b.sub) / 2, top + 24, b.sub);
+    } else {
+      // Icon above the label.
+      drawIcon(renderer, *b.icon, centers[i] - b.icon->size / 2, top + 4);
+      renderer.drawText(SMALL_FONT_ID, centers[i] - labelW / 2, top + 23, b.label);
     }
   }
 }
@@ -43,17 +51,17 @@ void drawActionButtons(const GfxRenderer& renderer, const ActionButton buttons[4
 int drawCardHeader(const GfxRenderer& renderer, const char* title, const char* right, const int percent) {
   const int w = renderer.getScreenWidth();
   const int rightW = right && right[0] ? renderer.getTextWidth(UI_12_FONT_ID, right, EpdFontFamily::BOLD) : 0;
-  if (rightW) renderer.drawText(UI_12_FONT_ID, w - GUTTER - rightW, 14, right, true, EpdFontFamily::BOLD);
+  if (rightW) renderer.drawText(UI_12_FONT_ID, w - GUTTER - rightW, 6, right, true, EpdFontFamily::BOLD);
   const std::string t =
       renderer.truncatedText(UI_12_FONT_ID, title, w - 2 * GUTTER - (rightW ? rightW + 16 : 0), EpdFontFamily::BOLD);
-  renderer.drawText(UI_12_FONT_ID, GUTTER, 14, t.c_str(), true, EpdFontFamily::BOLD);
-  drawBar(renderer, GUTTER, 54, w - 2 * GUTTER, percent, true, 8);
-  return 76;
+  renderer.drawText(UI_12_FONT_ID, GUTTER, 6, t.c_str(), true, EpdFontFamily::BOLD);
+  drawBar(renderer, GUTTER, 40, w - 2 * GUTTER, percent, true, 6);
+  return 54;
 }
 
 void drawCardFrame(const GfxRenderer& renderer, const int top, const int bottom) {
   const int w = renderer.getScreenWidth();
-  renderer.drawRoundedRect(GUTTER, top, w - 2 * GUTTER, bottom - top, 2, 22, true);
+  renderer.drawRoundedRect(CARD_FRAME_GUTTER, top, w - 2 * CARD_FRAME_GUTTER, bottom - top, 2, 18, true);
 }
 
 void drawBattery(const GfxRenderer& renderer, const int right, const int y, const int percent, const bool showText) {

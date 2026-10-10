@@ -31,10 +31,9 @@ constexpr uint8_t SAVE_EVERY_RATINGS = 5;
 constexpr unsigned long HOLD_MS = 700;  // side button held this long: card action
 
 // Text area inside the card frame.
+constexpr int TEXT_LEFT = ZarzardUi::CARD_FRAME_GUTTER + ZarzardUi::CARD_TEXT_INSET;
 FlashcardLayout::CardArea cardArea(const GfxRenderer& renderer, const int frameTop, const int frameBottom) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  return {frameTop + 20, frameBottom - 20, renderer.getScreenWidth() - 2 * (ZarzardUi::GUTTER + 24),
-          metrics.verticalSpacing};
+  return {frameTop + 12, frameBottom - 10, renderer.getScreenWidth() - 2 * TEXT_LEFT, 12};
 }
 
 void drawCenteredLines(const GfxRenderer& renderer, int font, int y, const std::vector<std::string>& lines) {
@@ -913,14 +912,14 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
   // A card action's note takes the progress's place for one card.
   const char* right = statusMsg ? statusMsg : progress;
   const int frameTop = ZarzardUi::drawCardHeader(renderer, displayName().c_str(), right, percent);
-  const int frameBottom = renderer.getScreenHeight() - ZarzardUi::ACTION_BUTTON_HEIGHT - 20;
+  const int frameBottom = ZarzardUi::actionButtonsTop(renderer) - 6;
   ZarzardUi::drawCardFrame(renderer, frameTop, frameBottom);
 
   const auto area = cardArea(renderer, frameTop, frameBottom);
   if (card.isMarked()) {
     // Bookmark in the card's corner: set aside for the clean-up list.
     ZarzardUi::drawIcon(renderer, ZarzardIcons::BookmarkSimpleFill24,
-                        renderer.getScreenWidth() - ZarzardUi::GUTTER - 40, frameTop + 2);
+                        renderer.getScreenWidth() - ZarzardUi::CARD_FRAME_GUTTER - 34, frameTop + 2);
   }
   std::string mainText, hint;
   card.parseFront(mainText, hint);
@@ -949,21 +948,21 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
     drawCenteredLines(renderer, front.hintFont, front.hintY, front.hintLines);
     const char* const labels[4] = {tr(STR_BACK), tr(STR_FLASHCARD_SHOW), "", ""};
     const char* const subs[4] = {"", "", "", ""};
-    const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::ArrowUUpLeft32, &ZarzardIcons::Eye32, nullptr, nullptr};
+    const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::ArrowUUpLeft20, &ZarzardIcons::Eye20, nullptr, nullptr};
     place(labels, subs, icons);
   } else {
     const auto back = FlashcardLayout::layoutBack(renderer, mainText, card.backContent, area, UI_12_FONT_ID);
     drawCenteredLines(renderer, back.questionFont, back.questionY, back.questionLines);
     // Dashed rule between question and answer.
-    const int left = ZarzardUi::GUTTER + 24, rightX = renderer.getScreenWidth() - ZarzardUi::GUTTER - 24;
+    const int left = TEXT_LEFT, rightX = renderer.getScreenWidth() - TEXT_LEFT;
     for (int x = left; x < rightX; x += 10) renderer.fillRect(x, back.separatorY, 5, 2, true);
     drawCenteredLines(renderer, back.answerFont, back.answerY, back.answerLines);
 
     if (mode == ReviewMode::Linear) {
       const char* const labels[4] = {tr(STR_FLASHCARD_MISSED), "", tr(STR_FLASHCARD_UNSURE), tr(STR_FLASHCARD_KNOWN)};
       const char* const subs[4] = {"", "", "", ""};
-      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle32, nullptr, &ZarzardIcons::Question32,
-                                                  &ZarzardIcons::CheckCircle32};
+      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle20, nullptr, &ZarzardIcons::Question20,
+                                                  &ZarzardIcons::CheckCircle20};
       place(labels, subs, icons);
     } else {
       // Rating and the interval it leads to. Back→Again, Confirm→Easy, Previous→Hard, Next→Good
@@ -978,8 +977,8 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
         snprintf(intervals[i], sizeof(intervals[i]), "%s", preview);
       }
       const char* const subs[4] = {intervals[0], intervals[1], intervals[2], intervals[3]};
-      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle32, &ZarzardIcons::Lightning32,
-                                                  &ZarzardIcons::Question32, &ZarzardIcons::CheckCircle32};
+      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle20, &ZarzardIcons::Lightning20,
+                                                  &ZarzardIcons::Question20, &ZarzardIcons::CheckCircle20};
       place(labels, subs, icons);
     }
   }

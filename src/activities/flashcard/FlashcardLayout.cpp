@@ -86,9 +86,10 @@ std::vector<std::string> wrapText(const GfxRenderer& r, int fontId, const std::s
   return lines;
 }
 
-// 5.2 — largest NotoSerif size that fits availH, uses at most 4 lines and
-// never splits a word. Falls back to 14 (codepoint split allowed).
-static constexpr int MAX_MAIN_LINES = 4;
+// 5.2 — largest NotoSerif size that fits availH and never splits a word; the
+// big sizes (24-20) only up to 4 lines, so a long text gets 18/16 over many
+// lines rather than dropping to 14. Falls back to 14 (codepoint split allowed).
+static constexpr int MAX_BIG_LINES = 4;
 
 // The 20-24 serif and all mono sizes are Latin-only subsets. A size is
 // skipped when it lacks a glyph the full-coverage serif (14) has, so nothing
@@ -113,7 +114,8 @@ int pickMainFont(const GfxRenderer& r, const std::string& text, int maxWidth, in
     bool cut = false;
     auto lines = wrapText(r, f, text, maxWidth, &cut);
     const int needed = r.getLineHeight(f) * (int)lines.size();
-    if (!cut && needed <= availH && (int)lines.size() <= MAX_MAIN_LINES) {
+    const bool big = f == NOTOSERIF_24_FONT_ID || f == NOTOSERIF_22_FONT_ID || f == NOTOSERIF_20_FONT_ID;
+    if (!cut && needed <= availH && (!big || (int)lines.size() <= MAX_BIG_LINES)) {
       outLines = std::move(lines);
       return f;
     }
