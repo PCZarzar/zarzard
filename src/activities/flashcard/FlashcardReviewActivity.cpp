@@ -935,7 +935,7 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
     const char* order[4] = {mappedKeys.btn1, mappedKeys.btn2, mappedKeys.btn3, mappedKeys.btn4};
     for (int pos = 0; pos < 4; ++pos) {
       const int role = order[pos] ? order[pos][0] - '0' : -1;
-      if (role < 0 || role > 3 || !icons[role]) continue;
+      if (role < 0 || role > 3 || (!icons[role] && !labels[role][0])) continue;
       buttons[pos].icon = icons[role];
       buttons[pos].label = labels[role];
       buttons[pos].sub = subs[role];
@@ -946,9 +946,10 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
     const auto front = FlashcardLayout::layoutFront(renderer, mainText, hint, area, UI_10_FONT_ID);
     drawCenteredLines(renderer, front.mainFont, front.mainY, front.mainLines);
     drawCenteredLines(renderer, front.hintFont, front.hintY, front.hintLines);
-    const char* const labels[4] = {tr(STR_BACK), tr(STR_FLASHCARD_SHOW), "", ""};
+    // Icons only: Back and Show need no words.
+    const char* const labels[4] = {"", "", "", ""};
     const char* const subs[4] = {"", "", "", ""};
-    const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::ArrowUUpLeft20, &ZarzardIcons::Eye20, nullptr, nullptr};
+    const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::ArrowUUpLeft32, &ZarzardIcons::Eye32, nullptr, nullptr};
     place(labels, subs, icons);
   } else {
     const auto back = FlashcardLayout::layoutBack(renderer, mainText, card.backContent, area, UI_12_FONT_ID);
@@ -961,8 +962,7 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
     if (mode == ReviewMode::Linear) {
       const char* const labels[4] = {tr(STR_FLASHCARD_MISSED), "", tr(STR_FLASHCARD_UNSURE), tr(STR_FLASHCARD_KNOWN)};
       const char* const subs[4] = {"", "", "", ""};
-      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle20, nullptr, &ZarzardIcons::Question20,
-                                                  &ZarzardIcons::CheckCircle20};
+      const ZarzardIcons::Icon* const icons[4] = {nullptr, nullptr, nullptr, nullptr};  // words only
       place(labels, subs, icons);
     } else {
       // Rating and the interval it leads to. Back→Again, Confirm→Easy, Previous→Hard, Next→Good
@@ -977,8 +977,7 @@ void FlashcardReviewActivity::renderCard(const FlashcardCard& card) {
         snprintf(intervals[i], sizeof(intervals[i]), "%s", preview);
       }
       const char* const subs[4] = {intervals[0], intervals[1], intervals[2], intervals[3]};
-      const ZarzardIcons::Icon* const icons[4] = {&ZarzardIcons::XCircle20, &ZarzardIcons::Lightning20,
-                                                  &ZarzardIcons::Question20, &ZarzardIcons::CheckCircle20};
+      const ZarzardIcons::Icon* const icons[4] = {nullptr, nullptr, nullptr, nullptr};  // words only
       place(labels, subs, icons);
     }
   }

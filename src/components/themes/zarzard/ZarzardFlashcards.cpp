@@ -24,26 +24,26 @@ void drawActionButtons(const GfxRenderer& renderer, const ActionButton buttons[4
   int centers[4];
   frontButtonCenters(renderer, centers);
   constexpr int W = 84;
-  constexpr int ICON_GAP = 4;
   const int top = actionButtonsTop(renderer);
   for (int i = 0; i < 4; ++i) {
     const ActionButton& b = buttons[i];
-    if (!b.icon) continue;
+    const bool hasLabel = b.label && b.label[0];
+    if (!b.icon && !hasLabel) continue;
     const int x = centers[i] - W / 2;
     renderer.fillRoundedRect(x, top, W, ACTION_BUTTON_HEIGHT, 12, Color::White);
     renderer.drawRoundedRect(x, top, W, ACTION_BUTTON_HEIGHT, 2, 12, true);
-    const int lineH = renderer.getLineHeight(SMALL_FONT_ID);
-    const int labelW = renderer.getTextWidth(SMALL_FONT_ID, b.label);
+    if (!hasLabel) {
+      drawIcon(renderer, *b.icon, centers[i] - b.icon->size / 2, top + (ACTION_BUTTON_HEIGHT - b.icon->size) / 2);
+      continue;
+    }
+    const int labelW = renderer.getTextWidth(UI_10_FONT_ID, b.label, EpdFontFamily::BOLD);
     if (b.sub && b.sub[0]) {
-      // Icon and label side by side, the interval below.
-      const int groupX = centers[i] - (b.icon->size + ICON_GAP + labelW) / 2;
-      drawIcon(renderer, *b.icon, groupX, top + 4);
-      renderer.drawText(SMALL_FONT_ID, groupX + b.icon->size + ICON_GAP, top + 4 + (b.icon->size - lineH) / 2, b.label);
+      renderer.drawText(UI_10_FONT_ID, centers[i] - labelW / 2, top + 1, b.label, true, EpdFontFamily::BOLD);
       renderer.drawText(SMALL_FONT_ID, centers[i] - renderer.getTextWidth(SMALL_FONT_ID, b.sub) / 2, top + 24, b.sub);
     } else {
-      // Icon above the label.
-      drawIcon(renderer, *b.icon, centers[i] - b.icon->size / 2, top + 4);
-      renderer.drawText(SMALL_FONT_ID, centers[i] - labelW / 2, top + 23, b.label);
+      const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
+      renderer.drawText(UI_10_FONT_ID, centers[i] - labelW / 2, top + (ACTION_BUTTON_HEIGHT - lineH) / 2, b.label, true,
+                        EpdFontFamily::BOLD);
     }
   }
 }

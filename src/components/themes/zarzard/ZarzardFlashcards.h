@@ -14,14 +14,15 @@ namespace ZarzardUi {
 // Horizontal centers of the four front buttons (X3 spaces them wider).
 void frontButtonCenters(const GfxRenderer& renderer, int out[4]);
 
+// A button shows either an icon or a label (with an optional second line);
+// neither: no button on that key.
 struct ActionButton {
-  const ZarzardIcons::Icon* icon = nullptr;  // null: no button on that key
+  const ZarzardIcons::Icon* icon = nullptr;
   const char* label = "";
   const char* sub = "";  // second line (next interval), may be empty
 };
 constexpr int ACTION_BUTTON_HEIGHT = 48;
-// Low outlined buttons (icon and label on one row, the interval below),
-// bottom-aligned over the front keys. Returns the buttons' top y.
+// Low outlined buttons bottom-aligned over the front keys.
 int actionButtonsTop(const GfxRenderer& renderer);
 void drawActionButtons(const GfxRenderer& renderer, const ActionButton buttons[4]);
 
