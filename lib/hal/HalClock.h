@@ -41,4 +41,13 @@ class HalClock {
   // Debouncing (skip if already synced once) is enforced by the caller, not here,
   // so the HAL stays free of any app-layer settings dependency.
   bool syncFromNTP();
+
+  // Devices with an RTC keep the date through a power cut; the system clock
+  // does not. Sets the system clock (UTC) from the RTC when it holds a
+  // plausible date (2026 or later). False without an RTC or a plausible date.
+  bool setSystemTimeFromRtc();
+
+  // Writes the system clock (UTC) to the RTC, e.g. after an NTP sync done
+  // elsewhere. False without an RTC.
+  bool setRtcFromSystemTime();
 };

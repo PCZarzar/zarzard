@@ -1,6 +1,7 @@
 #include "FlashcardClockSync.h"
 
 #include <Arduino.h>
+#include <HalClock.h>
 #include <Logging.h>
 #include <WiFi.h>
 #include <esp_sntp.h>
@@ -15,7 +16,11 @@
 namespace FlashcardClockSync {
 
 FlashcardClock::State state() {
-  return FlashcardClock::evaluate(static_cast<int64_t>(time(nullptr)), FLASHCARD_STORE.lastSyncUnix);
+  const int64_t now = static_cast<int64_t>(time(nullptr));
+  // A device with an RTC (X3) set the clock from it at boot and keeps time
+  // through sleep: a plausible date needs no confirmation and no new sync.
+  if (halClock.isAvailable() && now >= FlashcardClock::MIN_VALID_UNIX) return FlashcardClock::State::Ok;
+  return FlashcardClock::evaluate(now, FLASHCARD_STORE.lastSyncUnix);
 }
 
 bool syncFromNtp() {
@@ -43,6 +48,7 @@ bool syncFromNtp() {
       if (!FLASHCARD_STORE.saveToFile()) {
         LOG_ERR("FCLK", "Clock synced but flashcard.json could not be saved");
       }
+      halClock.setRtcFromSystemTime();  // devices with an RTC keep it through the next power cut
       LOG_INF("FCLK", "Clock synced: %lld", static_cast<long long>(now));
       return true;
     }
@@ -72,12 +78,22 @@ uint32_t suggestedDay() {
 bool setDay(const uint32_t day) {
   const int64_t unix = FlashcardClock::noonOfDay(day, FLASHCARD_STORE.utcOffsetMinutes);
   if (day == 0 || unix < FlashcardClock::MIN_VALID_UNIX) return false;
+  // An RTC clock already on that day keeps its real hour.
+  const int64_t now = static_cast<int64_t>(time(nullptr));
+  if (halClock.isAvailable() && now >= FlashcardClock::MIN_VALID_UNIX &&
+      FlashcardClock::dayIndex(now, FLASHCARD_STORE.utcOffsetMinutes) == day) {
+    FLASHCARD_STORE.lastSeenDay = day;
+    FLASHCARD_STORE.saveToFile();
+    return true;
+  }
   timeval tv{};
   tv.tv_sec = static_cast<time_t>(unix);
   if (settimeofday(&tv, nullptr) != 0) {
     LOG_ERR("FCLK", "settimeofday failed");
     return false;
   }
+  // The RTC keeps a date set by hand too (at noon: a Wi-Fi sync sets the hour).
+  halClock.setRtcFromSystemTime();
   FLASHCARD_STORE.lastSyncUnix = static_cast<uint32_t>(unix);
   FLASHCARD_STORE.lastSeenDay = day;
   if (!FLASHCARD_STORE.saveToFile()) LOG_ERR("FCLK", "Date set but flashcard.json could not be saved");

@@ -25,7 +25,7 @@ void drawStudyCard(const GfxRenderer& renderer, const ZarzardHomeView& v, const 
   drawIcon(renderer, ZarzardIcons::CardsFill32, x + 22, y + 22);
   // 戦え centered in the card's empty right side, above the progress bar.
   const auto& mark = ZarzardIcons::TatakaeCard;
-  drawPicture(renderer, mark, x + 354 - mark.width / 2, y + 88 - mark.height / 2);
+  drawPicture(renderer, mark, x + w - 78 - mark.width / 2, y + 88 - mark.height / 2);
   renderer.drawText(ZZ_TITLE_14_FONT_ID, x + 64, y + 18, v.studyTitle);
   if (v.cardsToday < 0) {
     renderer.drawText(UI_12_FONT_ID, x + 22, y + 90, v.dateUnknownLabel, true, EpdFontFamily::BOLD);

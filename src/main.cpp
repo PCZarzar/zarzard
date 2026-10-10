@@ -428,6 +428,8 @@ void setup() {
 
   halTiltSensor.begin();
   halClock.begin();
+  // The X3's RTC keeps the date through a power cut: no date to confirm there.
+  halClock.setSystemTimeFromRtc();
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
