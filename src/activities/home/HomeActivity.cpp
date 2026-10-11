@@ -197,7 +197,7 @@ void HomeActivity::freeCoverBuffer() {
 // Holding side Up + front Right opens the Bible. Both also move the selection,
 // so it goes back to where it was before the first of them was pressed.
 bool HomeActivity::bibleChord() {
-  constexpr unsigned long BIBLE_HOLD_MS = 5000;
+  constexpr unsigned long BIBLE_HOLD_MS = 3000;
   const bool up = mappedInput.isPressed(MappedInputManager::Button::Up);
   const bool right = mappedInput.isPressed(MappedInputManager::Button::Right);
   if (!up && !right) {
