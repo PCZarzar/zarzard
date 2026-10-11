@@ -1,6 +1,6 @@
 # zarzard
 
-**戦え — fight.** A study firmware for the Xteink X4 e-reader: spaced-repetition
+**戦え — fight.** A study firmware for the Xteink X4 and X3 e-readers: spaced-repetition
 flashcards, drill, study statistics and summaries, on top of a full
 EPUB reader.
 
@@ -26,7 +26,7 @@ its own look.
 
 ## Install
 
-The X4 can be updated from the SD card, no USB flashing needed:
+The X4 and X3 can be updated from the SD card, no USB flashing needed:
 
 1. Download `firmware.bin` from the [latest release](https://github.com/PCZarzar/zarzard/releases/latest)
    and copy it to the root of the SD card.
